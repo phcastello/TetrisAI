@@ -1,3 +1,4 @@
-[submodule "Tetris"]
-	path = Tetris
+[submodule "external/Tetris"]
+	path = external/Tetris
 	url = git@github.com:phcastello/Tetris.git
+	branch = main
