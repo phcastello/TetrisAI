@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(BUILD_GUI OFF CACHE BOOL "Disable GUI from submodule" FORCE)
 set(BUILD_CLI OFF CACHE BOOL "Disable CLI from submodule" FORCE)
 
-add_subdirectory(external/tetris)
+add_subdirectory(external/Tetris)
 
 # Seu runner/agents vão linkar só na engine do submódulo:
 add_executable(ai_runner apps/ai_runner.cpp)      # (stub por enquanto)
