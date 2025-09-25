@@ -1,0 +1,3 @@
+[submodule "Tetris"]
+	path = Tetris
+	url = git@github.com:phcastello/Tetris.git
