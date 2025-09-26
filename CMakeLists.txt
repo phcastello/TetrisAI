@@ -10,6 +10,21 @@ set(BUILD_CLI OFF CACHE BOOL "Disable CLI from submodule" FORCE)
 
 add_subdirectory(external/Tetris)
 
-# Seu runner/agents vão linkar só na engine do submódulo:
+add_library(env_tetris STATIC
+    adapters/tetris_game/GameEnv.cpp
+)
+
+target_include_directories(env_tetris
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/adapters
+        ${CMAKE_CURRENT_SOURCE_DIR}/sdk/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/Tetris/engine/include
+)
+
+target_link_libraries(env_tetris
+    PUBLIC
+        tetris_engine
+)
+
 add_executable(ai_runner apps/ai_runner.cpp)      # (stub por enquanto)
-target_link_libraries(ai_runner PRIVATE tetris_engine)
+target_link_libraries(ai_runner PRIVATE env_tetris)

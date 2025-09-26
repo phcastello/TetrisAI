@@ -1,0 +1,5 @@
+# Configuração inicial para o agente Expectimax.
+seed: 1337
+depth: 2
+branching_factor: 7
+rollout_limit: 4

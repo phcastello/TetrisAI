@@ -1,0 +1,6 @@
+# Configuração inicial para o agente DQN (fase futura).
+seed: 1337
+learning_rate: 0.00025
+batch_size: 32
+replay_capacity: 100000
+warmup_steps: 5000

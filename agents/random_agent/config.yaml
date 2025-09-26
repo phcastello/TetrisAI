@@ -1,0 +1,4 @@
+# Configuração padrão para o agente aleatório.
+seed: 1337
+max_steps: 1000
+runs: 10

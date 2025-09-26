@@ -1,0 +1,8 @@
+# Configuração inicial para o agente heurístico guloso.
+seed: 1337
+lookahead_depth: 1
+weights:
+  aggregate_height: -0.510066
+  complete_lines: 0.760666
+  holes: -0.35663
+  bumpiness: -0.184483
