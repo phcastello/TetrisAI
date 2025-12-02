@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cctype>
 #include <filesystem>
@@ -10,6 +11,7 @@
 #include <vector>
 
 #include "tetris_env/Agent.hpp"
+#include "tetris_env/GreedyAgent.hpp"
 #include "tetris_env/MctsConfig.hpp"
 #include "tetris_env/MctsRolloutAgent.hpp"
 #include "tetris_env/RandomAgent.hpp"
@@ -64,6 +66,9 @@ void printUsage() {
               << "      - name: random_baseline\n"
               << "        type: random\n"
               << "        episodes: 100\n"
+              << "      - name: greedy_baseline\n"
+              << "        type: greedy\n"
+              << "        episodes: 100\n"
               << "      - name: mcts_default\n"
               << "        type: mcts_rollout\n"
               << "        episodes: 100\n"
@@ -98,9 +103,11 @@ std::optional<BatchConfig> loadBatchConfig(const std::string& path) {
             std::cerr << "Erro: agente sem 'name' proximo da linha " << currentLine << '\n';
             return false;
         }
-        if (currentAgent.type != "random" && currentAgent.type != "mcts_rollout") {
+        if (currentAgent.type != "random" &&
+            currentAgent.type != "mcts_rollout" &&
+            currentAgent.type != "greedy") {
             std::cerr << "Erro: tipo invalido para o agente '" << currentAgent.name
-                      << "' (linha " << currentLine << "). Use 'random' ou 'mcts_rollout'.\n";
+                      << "' (linha " << currentLine << "). Use 'random', 'greedy' ou 'mcts_rollout'.\n";
             return false;
         }
         if (currentAgent.episodes <= 0) {
@@ -232,7 +239,23 @@ std::string agentDirForType(const std::string& type) {
     if (type == "mcts_rollout") {
         return "mcts_rollout";
     }
+    if (type == "greedy") {
+        return "heuristic_greedy";
+    }
     return "random_agent";
+}
+
+std::string agentFilenameSuffixForType(const std::string& type) {
+    if (type == "mcts_rollout") {
+        return "_MCTS";
+    }
+    if (type == "greedy") {
+        return "_greedy";
+    }
+    if (type == "random") {
+        return "_random";
+    }
+    return "";
 }
 
 std::optional<std::filesystem::path> resolveMctsConfigForAgent(const AgentBatchConfig& agentCfg,
@@ -272,6 +295,7 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
                          const std::filesystem::path& configBaseDir) {
     const std::string runId = tetris::makeRunIdTimestamp();
     const std::string agentDir = agentDirForType(agentCfg.type);
+    const std::string agentFilenameSuffix = agentFilenameSuffixForType(agentCfg.type);
     const unsigned int threadsToUse = std::max(
         1u, std::min<unsigned int>(threadsForAgent, static_cast<unsigned int>(agentCfg.episodes)));
 
@@ -338,6 +362,8 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
                     }
                     MctsParams paramsCopy = *paramsOpt;
                     agent = std::make_unique<MctsRolloutAgent>(paramsCopy);
+                } else if (agentTypeCopy == "greedy") {
+                    agent = std::make_unique<GreedyAgent>();
                 } else {
                     std::cerr << "Tipo de agente desconhecido: " << agentTypeCopy << '\n';
                     break;
@@ -390,7 +416,7 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
               });
 
     for (const auto& rep : reports) {
-        tetris::appendEpisodeReportToRunFile(rep, agentDir);
+        tetris::appendEpisodeReportToRunFile(rep, agentDir, agentFilenameSuffix);
     }
 
     double sumScore = 0.0;
@@ -408,7 +434,7 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
               << " threads=" << threadsToUse
               << " avg_score=" << avgScore
               << " avg_lines=" << avgLines
-              << " -> agents/" << agentDir << "/run_" << runId << ".csv\n";
+              << " -> agents/" << agentDir << "/run_" << runId << agentFilenameSuffix << ".csv\n";
 
     return true;
 }
@@ -448,19 +474,40 @@ int main(int argc, char** argv) {
     const unsigned int baseThreadsPerAgent = std::max(1u, maxThreads / static_cast<unsigned int>(numAgents));
     unsigned int remaining = maxThreads % static_cast<unsigned int>(numAgents);
 
+    std::vector<unsigned int> threadsPerAgent(numAgents, 1u);
+    for (std::size_t i = 0; i < numAgents; ++i) {
+        unsigned int threadsForThisAgent = baseThreadsPerAgent + (i < remaining ? 1u : 0u);
+        if (config.agents[i].episodes < static_cast<int>(threadsForThisAgent)) {
+            threadsForThisAgent = static_cast<unsigned int>(std::max(1, config.agents[i].episodes));
+        }
+        threadsPerAgent[i] = threadsForThisAgent;
+    }
+
+    std::vector<std::thread> agentThreads;
+    agentThreads.reserve(numAgents);
+    std::vector<std::atomic_bool> agentSuccess(numAgents);
+
     for (std::size_t i = 0; i < numAgents; ++i) {
         const AgentBatchConfig& agentCfg = config.agents[i];
-
-        unsigned int threadsForThisAgent = baseThreadsPerAgent + (i < remaining ? 1u : 0u);
-        if (agentCfg.episodes < static_cast<int>(threadsForThisAgent)) {
-            threadsForThisAgent = static_cast<unsigned int>(std::max(1, agentCfg.episodes));
-        }
+        const unsigned int threadsForThisAgent = threadsPerAgent[i];
 
         std::cout << "Executando agente '" << agentCfg.name << "' (" << agentCfg.type
                   << ") com " << threadsForThisAgent << " thread(s)...\n";
 
-        if (!runEpisodesForAgent(agentCfg, threadsForThisAgent, config.baseDir)) {
-            std::cerr << "Execucao interrompida para o agente '" << agentCfg.name << "'.\n";
+        agentSuccess[i].store(false, std::memory_order_relaxed);
+        agentThreads.emplace_back([&, i, threadsForThisAgent]() {
+            const bool ok = runEpisodesForAgent(config.agents[i], threadsForThisAgent, config.baseDir);
+            agentSuccess[i].store(ok, std::memory_order_relaxed);
+        });
+    }
+
+    for (auto& t : agentThreads) {
+        t.join();
+    }
+
+    for (std::size_t i = 0; i < numAgents; ++i) {
+        if (!agentSuccess[i].load(std::memory_order_relaxed)) {
+            std::cerr << "Execucao interrompida para o agente '" << config.agents[i].name << "'.\n";
             return 1;
         }
     }

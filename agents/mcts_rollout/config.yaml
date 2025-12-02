@@ -1,5 +1,5 @@
 # Configuração inicial para o agente MCTS com rollouts.
 seed: 1337
 iterations: 1000
-rollout_depth: 100
+rollout_depth: 70
 uct_c: 1.4142

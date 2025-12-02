@@ -4,13 +4,17 @@
 # Número máximo de threads a usar no total.
 # Se não for especificado ou for <= 0, usar std::thread::hardware_concurrency(),
 # e se isso for 0, cair para 1.
-threads: 4
+threads: 0
 
 # Lista de agentes a serem executados em batch.
 agents:
   - name: random_baseline
-    type: random          # suporta: "random", "mcts_rollout"
+    type: random          # suporta: "random", "greedy", "mcts_rollout"
     episodes: 100         # número de episódios para este agente
+
+  - name: greedy_baseline
+    type: greedy
+    episodes: 100
 
   - name: mcts_default
     type: mcts_rollout

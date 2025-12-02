@@ -25,13 +25,15 @@ std::string makeRunIdTimestamp() {
     return oss.str();
 }
 
-void appendEpisodeReportToRunFile(const EpisodeReport& rep, const std::string& agentDir) {
+void appendEpisodeReportToRunFile(const EpisodeReport& rep,
+                                  const std::string& agentDir,
+                                  const std::string& filenameSuffix) {
     namespace fs = std::filesystem;
 
     fs::path dir = fs::path("agents") / agentDir;
     fs::create_directories(dir);
 
-    const std::string filename = "run_" + rep.runId + ".csv";
+    const std::string filename = "run_" + rep.runId + filenameSuffix + ".csv";
     fs::path filepath = dir / filename;
 
     const bool isNewFile = !fs::exists(filepath);

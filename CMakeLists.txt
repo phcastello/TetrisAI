@@ -14,6 +14,7 @@ add_library(tetris_env
   src/tetris_env/MctsRolloutAgent.cpp
   src/tetris_env/MctsConfig.cpp
   src/tetris_env/RunLogging.cpp
+  src/tetris_env/GreedyAgent.cpp
 )
 target_include_directories(tetris_env
   PUBLIC
