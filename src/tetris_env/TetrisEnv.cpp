@@ -10,6 +10,7 @@ void TetrisEnv::reset() {
     game_.start();
     totalLinesCleared_ = 0;
     turnNumber_ = 0;
+    holdsUsed_ = 0;
 }
 
 StepResult TetrisEnv::step(const Action& action) {
@@ -18,9 +19,11 @@ StepResult TetrisEnv::step(const Action& action) {
     }
 
     const int previousScore = game_.score();
+    bool usedHold = false;
 
     if (action.useHold && game_.canHold()) {
         game_.hold();
+        usedHold = true;
     }
 
     if (isGameOver() || !game_.hasActivePiece()) {
@@ -31,6 +34,9 @@ StepResult TetrisEnv::step(const Action& action) {
     const int scoreDelta = placement.scoreDelta;
     if (!placement.success) {
         return StepResult{0, 0, scoreDelta, true};
+    }
+    if (usedHold) {
+        ++holdsUsed_;
     }
 
     if (placement.linesCleared > 0) {
@@ -50,6 +56,10 @@ bool TetrisEnv::isGameOver() const {
     return game_.state() == tetris::GameState::GameOver;
 }
 
+const tetris::Game& TetrisEnv::game() const {
+    return game_;
+}
+
 int TetrisEnv::getScore() const {
     return game_.score();
 }
@@ -60,6 +70,10 @@ int TetrisEnv::getTotalLinesCleared() const {
 
 int TetrisEnv::getTurnNumber() const {
     return turnNumber_;
+}
+
+int TetrisEnv::getHoldsUsed() const {
+    return holdsUsed_;
 }
 
 const tetris::Board& TetrisEnv::getBoard() const {

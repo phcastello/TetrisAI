@@ -2,4 +2,4 @@ build/
 .env
 *.o
 *.a
-
+agents/*/run_*.csv

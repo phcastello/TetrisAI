@@ -17,10 +17,12 @@ public:
     TetrisEnv clone() const;
 
     bool isGameOver() const;
+    const tetris::Game& game() const;
 
     int getScore() const;
     int getTotalLinesCleared() const;
     int getTurnNumber() const;
+    int getHoldsUsed() const;
 
     const tetris::Board& getBoard() const;
     tetris_env::PieceType getCurrentPieceType() const;
@@ -42,5 +44,6 @@ private:
     tetris::Game game_{};
     int totalLinesCleared_ = 0;
     int turnNumber_ = 0;
+    int holdsUsed_ = 0;
     std::size_t queueSize_ = static_cast<std::size_t>(tetris::engine_cfg::queuePreviewCount);
 };

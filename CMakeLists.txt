@@ -11,6 +11,9 @@ add_subdirectory(external/Tetris/engine)
 add_library(tetris_env
   src/tetris_env/TetrisEnv.cpp
   src/tetris_env/RandomAgent.cpp
+  src/tetris_env/MctsRolloutAgent.cpp
+  src/tetris_env/MctsConfig.cpp
+  src/tetris_env/RunLogging.cpp
 )
 target_include_directories(tetris_env
   PUBLIC
@@ -34,4 +37,21 @@ if(MSVC)
   target_compile_options(tetris_env_test PRIVATE /W4 /permissive-)
 else()
   target_compile_options(tetris_env_test PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+add_executable(tetris_batch_runner apps/tetris_batch_runner.cpp)
+target_link_libraries(tetris_batch_runner PRIVATE tetris_env)
+target_compile_features(tetris_batch_runner PRIVATE cxx_std_20)
+if(MSVC)
+  target_compile_options(tetris_batch_runner PRIVATE /W4 /permissive-)
+else()
+  target_compile_options(tetris_batch_runner PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+option(BUILD_TETRIS_GUI "Build the SFML GUI Tetris app with AI modes" OFF)
+if(BUILD_TETRIS_GUI)
+  add_subdirectory(external/Tetris/ui)
+  add_executable(tetris_gui external/Tetris/apps/tetris_gui.cpp)
+  target_link_libraries(tetris_gui PRIVATE tetris_ui tetris_env)
+  target_compile_features(tetris_gui PRIVATE cxx_std_20)
 endif()

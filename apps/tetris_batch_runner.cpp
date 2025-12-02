@@ -1,0 +1,469 @@
+#include <algorithm>
+#include <chrono>
+#include <cctype>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <optional>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "tetris_env/Agent.hpp"
+#include "tetris_env/MctsConfig.hpp"
+#include "tetris_env/MctsRolloutAgent.hpp"
+#include "tetris_env/RandomAgent.hpp"
+#include "tetris_env/RunLogging.hpp"
+#include "tetris_env/TetrisEnv.hpp"
+
+struct AgentBatchConfig {
+    std::string name;
+    std::string type;
+    int episodes = 0;
+    std::optional<std::string> mctsConfigPath;
+};
+
+struct BatchConfig {
+    std::filesystem::path baseDir{};
+    int threads = 0;
+    std::vector<AgentBatchConfig> agents;
+};
+
+namespace {
+
+std::string trim(const std::string& text) {
+    std::size_t start = 0;
+    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start])) != 0) {
+        ++start;
+    }
+    if (start == text.size()) {
+        return "";
+    }
+    std::size_t end = text.size() - 1;
+    while (end > start && std::isspace(static_cast<unsigned char>(text[end])) != 0) {
+        --end;
+    }
+    return text.substr(start, end - start + 1);
+}
+
+bool tryParseInt(const std::string& value, int& out) {
+    try {
+        out = std::stoi(value);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+void printUsage() {
+    std::cout << "Uso: tetris_batch_runner [caminho_config_yaml]\n\n"
+              << "- Se nenhum caminho for informado, usa \"config/batch_runs.yaml\".\n"
+              << "- O arquivo YAML deve ter o formato:\n\n"
+              << "    threads: 4\n"
+              << "    agents:\n"
+              << "      - name: random_baseline\n"
+              << "        type: random\n"
+              << "        episodes: 100\n"
+              << "      - name: mcts_default\n"
+              << "        type: mcts_rollout\n"
+              << "        episodes: 100\n"
+              << "        mcts_config: agents/mcts_rollout/config.yaml\n\n"
+              << "- Os resultados de cada agente sao gravados em:\n"
+              << "    agents/<agent_dir>/run_<runId>.csv\n";
+}
+
+std::optional<BatchConfig> loadBatchConfig(const std::string& path) {
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        std::cerr << "Erro: nao foi possivel abrir o arquivo de configuracao em " << path << '\n';
+        return std::nullopt;
+    }
+
+    BatchConfig config{};
+    const std::filesystem::path absoluteConfig = std::filesystem::absolute(path);
+    config.baseDir = absoluteConfig.parent_path();
+
+    bool inAgentsSection = false;
+    bool agentStarted = false;
+    AgentBatchConfig currentAgent{};
+
+    std::string line;
+    int lineNumber = 0;
+
+    auto flushCurrentAgent = [&](int currentLine) -> bool {
+        if (!agentStarted) {
+            return true;
+        }
+        if (currentAgent.name.empty()) {
+            std::cerr << "Erro: agente sem 'name' proximo da linha " << currentLine << '\n';
+            return false;
+        }
+        if (currentAgent.type != "random" && currentAgent.type != "mcts_rollout") {
+            std::cerr << "Erro: tipo invalido para o agente '" << currentAgent.name
+                      << "' (linha " << currentLine << "). Use 'random' ou 'mcts_rollout'.\n";
+            return false;
+        }
+        if (currentAgent.episodes <= 0) {
+            std::cerr << "Erro: 'episodes' deve ser > 0 para o agente '" << currentAgent.name
+                      << "' (linha " << currentLine << ").\n";
+            return false;
+        }
+        config.agents.push_back(currentAgent);
+        agentStarted = false;
+        currentAgent = AgentBatchConfig{};
+        return true;
+    };
+
+    while (std::getline(file, line)) {
+        ++lineNumber;
+        const auto commentPos = line.find('#');
+        if (commentPos != std::string::npos) {
+            line = line.substr(0, commentPos);
+        }
+
+        line = trim(line);
+        if (line.empty()) {
+            continue;
+        }
+
+        if (!inAgentsSection) {
+            if (line.rfind("threads", 0) == 0) {
+                const auto colonPos = line.find(':');
+                if (colonPos != std::string::npos) {
+                    const std::string value = trim(line.substr(colonPos + 1));
+                    int parsed = config.threads;
+                    if (tryParseInt(value, parsed)) {
+                        config.threads = parsed;
+                    } else {
+                        std::cerr << "Aviso: nao foi possivel interpretar 'threads' na linha " << lineNumber << '\n';
+                    }
+                }
+                continue;
+            }
+
+            if (line == "agents:") {
+                inAgentsSection = true;
+                continue;
+            }
+
+            // Linha desconhecida fora da secao de agentes: ignorar silenciosamente.
+            continue;
+        }
+
+        if (line[0] == '-') {
+            if (!flushCurrentAgent(lineNumber)) {
+                return std::nullopt;
+            }
+
+            currentAgent = AgentBatchConfig{};
+            agentStarted = true;
+
+            std::string afterDash = trim(line.substr(1));
+            if (!afterDash.empty()) {
+                const auto colonPos = afterDash.find(':');
+                if (colonPos != std::string::npos) {
+                    const std::string key = trim(afterDash.substr(0, colonPos));
+                    const std::string value = trim(afterDash.substr(colonPos + 1));
+                    if (key == "name") {
+                        currentAgent.name = value;
+                    } else if (key == "type") {
+                        currentAgent.type = value;
+                    } else if (key == "episodes") {
+                        int parsed = 0;
+                        if (tryParseInt(value, parsed)) {
+                            currentAgent.episodes = parsed;
+                        }
+                    } else if (key == "mcts_config") {
+                        currentAgent.mctsConfigPath = value;
+                    }
+                }
+            }
+            continue;
+        }
+
+        if (!agentStarted) {
+            std::cerr << "Erro de formato: esperava '- ' para iniciar um agente na linha " << lineNumber << '\n';
+            return std::nullopt;
+        }
+
+        const auto colonPos = line.find(':');
+        if (colonPos == std::string::npos) {
+            continue;
+        }
+
+        const std::string key = trim(line.substr(0, colonPos));
+        const std::string value = trim(line.substr(colonPos + 1));
+        if (key.empty() || value.empty()) {
+            continue;
+        }
+
+        if (key == "name") {
+            currentAgent.name = value;
+        } else if (key == "type") {
+            currentAgent.type = value;
+        } else if (key == "episodes") {
+            int parsed = 0;
+            if (tryParseInt(value, parsed)) {
+                currentAgent.episodes = parsed;
+            }
+        } else if (key == "mcts_config") {
+            currentAgent.mctsConfigPath = value;
+        }
+    }
+
+    if (!flushCurrentAgent(lineNumber)) {
+        return std::nullopt;
+    }
+
+    if (!inAgentsSection) {
+        std::cerr << "Erro: campo 'agents:' nao encontrado no arquivo de configuracao.\n";
+        return std::nullopt;
+    }
+
+    if (config.agents.empty()) {
+        std::cerr << "Erro: nenhum agente configurado em " << path << '\n';
+        return std::nullopt;
+    }
+
+    return config;
+}
+
+std::string agentDirForType(const std::string& type) {
+    if (type == "mcts_rollout") {
+        return "mcts_rollout";
+    }
+    return "random_agent";
+}
+
+std::optional<std::filesystem::path> resolveMctsConfigForAgent(const AgentBatchConfig& agentCfg,
+                                                               const std::filesystem::path& configBaseDir) {
+    namespace fs = std::filesystem;
+
+    if (agentCfg.mctsConfigPath.has_value()) {
+        fs::path provided = *agentCfg.mctsConfigPath;
+        std::vector<fs::path> candidates;
+        if (provided.is_absolute()) {
+            candidates.push_back(provided);
+        } else {
+            candidates.push_back(provided);
+            if (!configBaseDir.empty()) {
+                candidates.push_back(configBaseDir / provided);
+                const fs::path baseParent = configBaseDir.parent_path();
+                if (!baseParent.empty()) {
+                    candidates.push_back(baseParent / provided);
+                }
+            }
+        }
+
+        for (const auto& candidate : candidates) {
+            if (fs::exists(candidate)) {
+                return candidate;
+            }
+        }
+
+        return provided;
+    }
+
+    return tetris::findMctsConfigPath();
+}
+
+bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
+                         unsigned int threadsForAgent,
+                         const std::filesystem::path& configBaseDir) {
+    const std::string runId = tetris::makeRunIdTimestamp();
+    const std::string agentDir = agentDirForType(agentCfg.type);
+    const unsigned int threadsToUse = std::max(
+        1u, std::min<unsigned int>(threadsForAgent, static_cast<unsigned int>(agentCfg.episodes)));
+
+    std::optional<MctsParams> mctsParams{};
+    std::string agentConfigString;
+
+    if (agentCfg.type == "mcts_rollout") {
+        const auto configPathOpt = resolveMctsConfigForAgent(agentCfg, configBaseDir);
+        if (!configPathOpt.has_value()) {
+            std::cerr << "Erro: config do MCTS nao encontrada. Defina mcts_config ou crie agents/mcts_rollout/config.yaml.\n";
+            return false;
+        }
+
+        std::filesystem::path configPath = *configPathOpt;
+        if (!std::filesystem::exists(configPath)) {
+            std::cerr << "Erro: caminho de config do MCTS nao existe: " << configPath << '\n';
+            return false;
+        }
+
+        MctsParams params{};
+        if (!tetris::loadMctsParamsFromYaml(configPath, params)) {
+            return false;
+        }
+
+        mctsParams = params;
+        agentConfigString = tetris::buildMctsConfigString(params);
+
+        std::cout << "Config MCTS carregada de " << configPath << '\n';
+    }
+
+    std::vector<std::vector<int>> episodesPerThread(threadsToUse);
+    for (int ep = 0; ep < agentCfg.episodes; ++ep) {
+        episodesPerThread[ep % threadsToUse].push_back(ep + 1);
+    }
+
+    std::vector<std::vector<tetris::EpisodeReport>> reportsPerThread(threadsToUse);
+    std::vector<std::thread> workers;
+    workers.reserve(threadsToUse);
+
+    for (unsigned int i = 0; i < threadsToUse; ++i) {
+        workers.emplace_back([&, i]() {
+            const auto episodeIndices = episodesPerThread[i];
+            const std::optional<MctsParams> paramsOpt = mctsParams;
+            const std::string agentNameCopy = agentCfg.name;
+            const std::string modeName = "HeadlessBatch";
+            const std::string runIdCopy = runId;
+            const std::string agentConfigCopy = agentConfigString;
+            const std::string agentTypeCopy = agentCfg.type;
+
+            std::vector<tetris::EpisodeReport> localReports;
+            localReports.reserve(episodeIndices.size());
+
+            for (int episodeIndex : episodeIndices) {
+                TetrisEnv env{};
+                env.reset();
+
+                std::unique_ptr<Agent> agent;
+                if (agentTypeCopy == "random") {
+                    agent = std::make_unique<RandomAgent>();
+                } else if (agentTypeCopy == "mcts_rollout") {
+                    if (!paramsOpt.has_value()) {
+                        std::cerr << "Erro interno: MCTS params nao carregados.\n";
+                        break;
+                    }
+                    MctsParams paramsCopy = *paramsOpt;
+                    agent = std::make_unique<MctsRolloutAgent>(paramsCopy);
+                } else {
+                    std::cerr << "Tipo de agente desconhecido: " << agentTypeCopy << '\n';
+                    break;
+                }
+
+                agent->onEpisodeStart();
+                const auto start = std::chrono::steady_clock::now();
+                while (!env.isGameOver()) {
+                    const Action action = agent->chooseAction(env);
+                    const StepResult result = env.step(action);
+                    if (result.done) {
+                        break;
+                    }
+                }
+                const auto end = std::chrono::steady_clock::now();
+                agent->onEpisodeEnd();
+
+                tetris::EpisodeReport report{};
+                report.agentName = agentNameCopy;
+                report.modeName = modeName;
+                report.agentConfig = agentConfigCopy;
+                report.runId = runIdCopy;
+                report.episodeIndex = episodeIndex;
+                report.score = env.getScore();
+                report.totalLines = env.getTotalLinesCleared();
+                report.totalTurns = env.getTurnNumber();
+                report.holdsUsed = env.getHoldsUsed();
+                report.elapsedSeconds = std::chrono::duration<float>(end - start).count();
+
+                localReports.push_back(std::move(report));
+            }
+
+            reportsPerThread[i] = std::move(localReports);
+        });
+    }
+
+    for (auto& worker : workers) {
+        worker.join();
+    }
+
+    std::vector<tetris::EpisodeReport> reports;
+    reports.reserve(static_cast<std::size_t>(agentCfg.episodes));
+    for (auto& perThread : reportsPerThread) {
+        reports.insert(reports.end(), perThread.begin(), perThread.end());
+    }
+
+    std::sort(reports.begin(), reports.end(),
+              [](const tetris::EpisodeReport& a, const tetris::EpisodeReport& b) {
+                  return a.episodeIndex < b.episodeIndex;
+              });
+
+    for (const auto& rep : reports) {
+        tetris::appendEpisodeReportToRunFile(rep, agentDir);
+    }
+
+    double sumScore = 0.0;
+    double sumLines = 0.0;
+    for (const auto& rep : reports) {
+        sumScore += static_cast<double>(rep.score);
+        sumLines += static_cast<double>(rep.totalLines);
+    }
+
+    const double avgScore = reports.empty() ? 0.0 : sumScore / static_cast<double>(reports.size());
+    const double avgLines = reports.empty() ? 0.0 : sumLines / static_cast<double>(reports.size());
+
+    std::cout << "[Agente " << agentCfg.name << "] run_id=" << runId
+              << " episodios=" << reports.size()
+              << " threads=" << threadsToUse
+              << " avg_score=" << avgScore
+              << " avg_lines=" << avgLines
+              << " -> agents/" << agentDir << "/run_" << runId << ".csv\n";
+
+    return true;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    std::string configPath = "config/batch_runs.yaml";
+    if (argc > 1) {
+        std::string arg = argv[1];
+        if (arg == "--help" || arg == "-h") {
+            printUsage();
+            return 0;
+        }
+        configPath = arg;
+    }
+
+    const auto configOpt = loadBatchConfig(configPath);
+    if (!configOpt.has_value()) {
+        printUsage();
+        return 1;
+    }
+
+    const BatchConfig config = *configOpt;
+
+    unsigned int maxThreads = 0;
+    if (config.threads > 0) {
+        maxThreads = static_cast<unsigned int>(config.threads);
+    } else {
+        maxThreads = std::thread::hardware_concurrency();
+    }
+    if (maxThreads == 0) {
+        maxThreads = 1;
+    }
+
+    const std::size_t numAgents = config.agents.size();
+    const unsigned int baseThreadsPerAgent = std::max(1u, maxThreads / static_cast<unsigned int>(numAgents));
+    unsigned int remaining = maxThreads % static_cast<unsigned int>(numAgents);
+
+    for (std::size_t i = 0; i < numAgents; ++i) {
+        const AgentBatchConfig& agentCfg = config.agents[i];
+
+        unsigned int threadsForThisAgent = baseThreadsPerAgent + (i < remaining ? 1u : 0u);
+        if (agentCfg.episodes < static_cast<int>(threadsForThisAgent)) {
+            threadsForThisAgent = static_cast<unsigned int>(std::max(1, agentCfg.episodes));
+        }
+
+        std::cout << "Executando agente '" << agentCfg.name << "' (" << agentCfg.type
+                  << ") com " << threadsForThisAgent << " thread(s)...\n";
+
+        if (!runEpisodesForAgent(agentCfg, threadsForThisAgent, config.baseDir)) {
+            std::cerr << "Execucao interrompida para o agente '" << agentCfg.name << "'.\n";
+            return 1;
+        }
+    }
+
+    return 0;
+}

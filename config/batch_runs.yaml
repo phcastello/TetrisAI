@@ -1,0 +1,20 @@
+# Config para execução em batch de episódios de Tetris (sem GUI).
+# Este arquivo será lido pelo executável tetris_batch_runner.
+
+# Número máximo de threads a usar no total.
+# Se não for especificado ou for <= 0, usar std::thread::hardware_concurrency(),
+# e se isso for 0, cair para 1.
+threads: 4
+
+# Lista de agentes a serem executados em batch.
+agents:
+  - name: random_baseline
+    type: random          # suporta: "random", "mcts_rollout"
+    episodes: 100         # número de episódios para este agente
+
+  - name: mcts_default
+    type: mcts_rollout
+    episodes: 100
+    # Caminho opcional para o YAML de configuração do MCTS.
+    # Se omitido, usar a mesma busca que a GUI usa (agents/mcts_rollout/config.yaml, config/mcts_rollout.yaml, etc).
+    mcts_config: agents/mcts_rollout/config.yaml
