@@ -5,6 +5,7 @@
 #include <random>
 
 #include "tetris_env/Agent.hpp"
+#include "tetris_env/StepResult.hpp"
 #include "tetris_env/TetrisEnv.hpp"
 
 struct MctsParams {
@@ -23,4 +24,6 @@ public:
 private:
     MctsParams params_;
     std::mt19937 rng_;
+
+    double stepValue(const StepResult& r) const;
 };

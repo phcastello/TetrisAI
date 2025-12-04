@@ -1,5 +1,7 @@
-# Configuração inicial para o agente MCTS com rollouts.
+# Configuração para o agente MCTS com rollouts guiadas por GreedyAgent.
+# A recompensa interna do MCTS agora usa scoreDelta para alinhar com o score do jogo.
+# As rollouts usam GreedyAgent como política base (fallback aleatório defensivo no código).
 seed: 1337
-iterations: 1000
-rollout_depth: 70
+iterations: 5000      # ajuste inicial; pode ser calibrado depois
+rollout_depth: 100     # profundidade máxima dos rollouts
 uct_c: 1.4142

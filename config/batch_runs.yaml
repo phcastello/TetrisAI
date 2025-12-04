@@ -10,15 +10,15 @@ threads: 0
 agents:
   - name: random_baseline
     type: random          # suporta: "random", "greedy", "mcts_rollout"
-    episodes: 100         # número de episódios para este agente
+    episodes: 10         # número de episódios para este agente
 
   - name: greedy_baseline
     type: greedy
-    episodes: 100
+    episodes: 10
 
   - name: mcts_default
     type: mcts_rollout
-    episodes: 100
+    episodes: 10
     # Caminho opcional para o YAML de configuração do MCTS.
     # Se omitido, usar a mesma busca que a GUI usa (agents/mcts_rollout/config.yaml, config/mcts_rollout.yaml, etc).
     mcts_config: agents/mcts_rollout/config.yaml

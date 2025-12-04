@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -291,13 +292,13 @@ std::optional<std::filesystem::path> resolveMctsConfigForAgent(const AgentBatchC
 }
 
 bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
-                         unsigned int threadsForAgent,
+                         unsigned int maxConcurrentThreads,
                          const std::filesystem::path& configBaseDir) {
     const std::string runId = tetris::makeRunIdTimestamp();
     const std::string agentDir = agentDirForType(agentCfg.type);
     const std::string agentFilenameSuffix = agentFilenameSuffixForType(agentCfg.type);
     const unsigned int threadsToUse = std::max(
-        1u, std::min<unsigned int>(threadsForAgent, static_cast<unsigned int>(agentCfg.episodes)));
+        1u, std::min(maxConcurrentThreads, static_cast<unsigned int>(agentCfg.episodes)));
 
     std::optional<MctsParams> mctsParams{};
     std::string agentConfigString;
@@ -326,88 +327,104 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
         std::cout << "Config MCTS carregada de " << configPath << '\n';
     }
 
-    std::vector<std::vector<int>> episodesPerThread(threadsToUse);
-    for (int ep = 0; ep < agentCfg.episodes; ++ep) {
-        episodesPerThread[ep % threadsToUse].push_back(ep + 1);
-    }
-
-    std::vector<std::vector<tetris::EpisodeReport>> reportsPerThread(threadsToUse);
+    std::vector<tetris::EpisodeReport> reports(static_cast<std::size_t>(agentCfg.episodes));
     std::vector<std::thread> workers;
-    workers.reserve(threadsToUse);
+    workers.reserve(std::min<unsigned int>(threadsToUse, static_cast<unsigned int>(agentCfg.episodes)));
+    std::mutex logMutex;
+    std::atomic_bool success{true};
 
-    for (unsigned int i = 0; i < threadsToUse; ++i) {
-        workers.emplace_back([&, i]() {
-            const auto episodeIndices = episodesPerThread[i];
-            const std::optional<MctsParams> paramsOpt = mctsParams;
-            const std::string agentNameCopy = agentCfg.name;
-            const std::string modeName = "HeadlessBatch";
-            const std::string runIdCopy = runId;
-            const std::string agentConfigCopy = agentConfigString;
-            const std::string agentTypeCopy = agentCfg.type;
+    const std::optional<MctsParams> paramsOpt = mctsParams;
+    const std::string agentNameCopy = agentCfg.name;
+    const std::string modeName = "HeadlessBatch";
+    const std::string runIdCopy = runId;
+    const std::string agentConfigCopy = agentConfigString;
+    const std::string agentTypeCopy = agentCfg.type;
 
-            std::vector<tetris::EpisodeReport> localReports;
-            localReports.reserve(episodeIndices.size());
+    auto launchEpisode = [&](int episodeIndex) {
+        workers.emplace_back([&, episodeIndex]() {
+            TetrisEnv env{};
+            env.reset();
 
-            for (int episodeIndex : episodeIndices) {
-                TetrisEnv env{};
-                env.reset();
-
-                std::unique_ptr<Agent> agent;
-                if (agentTypeCopy == "random") {
-                    agent = std::make_unique<RandomAgent>();
-                } else if (agentTypeCopy == "mcts_rollout") {
-                    if (!paramsOpt.has_value()) {
-                        std::cerr << "Erro interno: MCTS params nao carregados.\n";
-                        break;
-                    }
-                    MctsParams paramsCopy = *paramsOpt;
-                    agent = std::make_unique<MctsRolloutAgent>(paramsCopy);
-                } else if (agentTypeCopy == "greedy") {
-                    agent = std::make_unique<GreedyAgent>();
-                } else {
-                    std::cerr << "Tipo de agente desconhecido: " << agentTypeCopy << '\n';
-                    break;
+            std::unique_ptr<Agent> agent;
+            if (agentTypeCopy == "random") {
+                agent = std::make_unique<RandomAgent>();
+            } else if (agentTypeCopy == "mcts_rollout") {
+                if (!paramsOpt.has_value()) {
+                    std::lock_guard<std::mutex> lock(logMutex);
+                    std::cerr << "Erro interno: MCTS params nao carregados.\n";
+                    success.store(false, std::memory_order_relaxed);
+                    return;
                 }
-
-                agent->onEpisodeStart();
-                const auto start = std::chrono::steady_clock::now();
-                while (!env.isGameOver()) {
-                    const Action action = agent->chooseAction(env);
-                    const StepResult result = env.step(action);
-                    if (result.done) {
-                        break;
-                    }
-                }
-                const auto end = std::chrono::steady_clock::now();
-                agent->onEpisodeEnd();
-
-                tetris::EpisodeReport report{};
-                report.agentName = agentNameCopy;
-                report.modeName = modeName;
-                report.agentConfig = agentConfigCopy;
-                report.runId = runIdCopy;
-                report.episodeIndex = episodeIndex;
-                report.score = env.getScore();
-                report.totalLines = env.getTotalLinesCleared();
-                report.totalTurns = env.getTurnNumber();
-                report.holdsUsed = env.getHoldsUsed();
-                report.elapsedSeconds = std::chrono::duration<float>(end - start).count();
-
-                localReports.push_back(std::move(report));
+                MctsParams paramsCopy = *paramsOpt;
+                agent = std::make_unique<MctsRolloutAgent>(paramsCopy);
+            } else if (agentTypeCopy == "greedy") {
+                agent = std::make_unique<GreedyAgent>();
+            } else {
+                std::lock_guard<std::mutex> lock(logMutex);
+                std::cerr << "Tipo de agente desconhecido: " << agentTypeCopy << '\n';
+                success.store(false, std::memory_order_relaxed);
+                return;
             }
 
-            reportsPerThread[i] = std::move(localReports);
+            agent->onEpisodeStart();
+            const auto start = std::chrono::steady_clock::now();
+            while (!env.isGameOver()) {
+                const Action action = agent->chooseAction(env);
+                const StepResult result = env.step(action);
+                if (result.done) {
+                    break;
+                }
+            }
+            const auto end = std::chrono::steady_clock::now();
+            agent->onEpisodeEnd();
+
+            tetris::EpisodeReport report{};
+            report.agentName = agentNameCopy;
+            report.modeName = modeName;
+            report.agentConfig = agentConfigCopy;
+            report.runId = runIdCopy;
+            report.episodeIndex = episodeIndex;
+            report.score = env.getScore();
+            report.totalLines = env.getTotalLinesCleared();
+            report.totalTurns = env.getTurnNumber();
+            report.holdsUsed = env.getHoldsUsed();
+            report.elapsedSeconds = std::chrono::duration<float>(end - start).count();
+
+            reports[static_cast<std::size_t>(episodeIndex - 1)] = report;
+
+            {
+                std::lock_guard<std::mutex> lock(logMutex);
+                std::cout << "[Agente " << agentNameCopy << "] episodio " << episodeIndex
+                          << " concluido: score=" << report.score
+                          << " linhas=" << report.totalLines
+                          << " turns=" << report.totalTurns
+                          << " tempo=" << report.elapsedSeconds << "s\n";
+            }
         });
+    };
+
+    int launched = 0;
+    while (launched < agentCfg.episodes) {
+        while (launched < agentCfg.episodes &&
+               workers.size() < threadsToUse) {
+            launchEpisode(launched + 1);
+            ++launched;
+        }
+
+        for (auto& w : workers) {
+            if (w.joinable()) {
+                w.join();
+            }
+        }
+        workers.clear();
+
+        if (!success.load(std::memory_order_relaxed)) {
+            break;
+        }
     }
 
-    for (auto& worker : workers) {
-        worker.join();
-    }
-
-    std::vector<tetris::EpisodeReport> reports;
-    reports.reserve(static_cast<std::size_t>(agentCfg.episodes));
-    for (auto& perThread : reportsPerThread) {
-        reports.insert(reports.end(), perThread.begin(), perThread.end());
+    if (!success.load(std::memory_order_relaxed)) {
+        return false;
     }
 
     std::sort(reports.begin(), reports.end(),
@@ -470,44 +487,19 @@ int main(int argc, char** argv) {
         maxThreads = 1;
     }
 
-    const std::size_t numAgents = config.agents.size();
-    const unsigned int baseThreadsPerAgent = std::max(1u, maxThreads / static_cast<unsigned int>(numAgents));
-    unsigned int remaining = maxThreads % static_cast<unsigned int>(numAgents);
-
-    std::vector<unsigned int> threadsPerAgent(numAgents, 1u);
-    for (std::size_t i = 0; i < numAgents; ++i) {
-        unsigned int threadsForThisAgent = baseThreadsPerAgent + (i < remaining ? 1u : 0u);
-        if (config.agents[i].episodes < static_cast<int>(threadsForThisAgent)) {
-            threadsForThisAgent = static_cast<unsigned int>(std::max(1, config.agents[i].episodes));
+    for (const auto& agentCfg : config.agents) {
+        unsigned int threadsForThisAgent = maxThreads;
+        if (agentCfg.episodes < static_cast<int>(threadsForThisAgent)) {
+            threadsForThisAgent = static_cast<unsigned int>(std::max(1, agentCfg.episodes));
         }
-        threadsPerAgent[i] = threadsForThisAgent;
-    }
-
-    std::vector<std::thread> agentThreads;
-    agentThreads.reserve(numAgents);
-    std::vector<std::atomic_bool> agentSuccess(numAgents);
-
-    for (std::size_t i = 0; i < numAgents; ++i) {
-        const AgentBatchConfig& agentCfg = config.agents[i];
-        const unsigned int threadsForThisAgent = threadsPerAgent[i];
 
         std::cout << "Executando agente '" << agentCfg.name << "' (" << agentCfg.type
-                  << ") com " << threadsForThisAgent << " thread(s)...\n";
+                  << ") com ate " << 
+                  " thread(s) simultaneas (threadsForThisAgent1 thread por jogo)...\n";
 
-        agentSuccess[i].store(false, std::memory_order_relaxed);
-        agentThreads.emplace_back([&, i, threadsForThisAgent]() {
-            const bool ok = runEpisodesForAgent(config.agents[i], threadsForThisAgent, config.baseDir);
-            agentSuccess[i].store(ok, std::memory_order_relaxed);
-        });
-    }
-
-    for (auto& t : agentThreads) {
-        t.join();
-    }
-
-    for (std::size_t i = 0; i < numAgents; ++i) {
-        if (!agentSuccess[i].load(std::memory_order_relaxed)) {
-            std::cerr << "Execucao interrompida para o agente '" << config.agents[i].name << "'.\n";
+        const bool ok = runEpisodesForAgent(agentCfg, threadsForThisAgent, config.baseDir);
+        if (!ok) {
+            std::cerr << "Execucao interrompida para o agente '" << agentCfg.name << "'.\n";
             return 1;
         }
     }

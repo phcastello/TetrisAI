@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "tetris_env/GreedyAgent.hpp"
 #include "tetris_env/StepResult.hpp"
 
 namespace {
@@ -30,6 +31,10 @@ MctsRolloutAgent::MctsRolloutAgent(const MctsParams& params) : params_(params) {
     } else {
         rng_.seed(std::random_device{}());
     }
+}
+
+double MctsRolloutAgent::stepValue(const StepResult& r) const {
+    return static_cast<double>(r.scoreDelta);
 }
 
 Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
@@ -57,6 +62,8 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
     root.totalValue = 0.0;
     root.terminal = false;
     root.untriedActions = rootActions;
+
+    GreedyAgent rolloutPolicy;
 
     for (int i = 0; i < params_.iterations; ++i) {
         TetrisEnv sim = env.clone();
@@ -100,7 +107,7 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
 
             const Action& a = nodes[bestChild].actionFromParent;
             const StepResult r = sim.step(a);
-            accumulatedReward += static_cast<double>(r.reward);
+            accumulatedReward += stepValue(r);
             ++depth;
 
             if (r.done || sim.isGameOver()) {
@@ -122,7 +129,7 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
             selectedNode.untriedActions.pop_back();
 
             const StepResult r = sim.step(a);
-            accumulatedReward += static_cast<double>(r.reward);
+            accumulatedReward += stepValue(r);
             ++depth;
 
             Node child{};
@@ -154,10 +161,25 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
                     break;
                 }
 
-                std::uniform_int_distribution<std::size_t> dist(0, actions.size() - 1);
-                const Action& a = actions[dist(rng_)];
+                // Recompensas internas usam scoreDelta; rollouts são guiadas pelo GreedyAgent
+                // para trajetórias mais informativas, com fallback aleatório defensivo caso a ação seja inválida.
+                Action a = rolloutPolicy.chooseAction(sim);
+
+                bool valid = false;
+                for (const auto& candidate : actions) {
+                    if (candidate.rotation == a.rotation && candidate.targetX == a.targetX &&
+                        candidate.useHold == a.useHold) {
+                        valid = true;
+                        break;
+                    }
+                }
+                if (!valid) {
+                    std::uniform_int_distribution<std::size_t> dist(0, actions.size() - 1);
+                    a = actions[dist(rng_)];
+                }
+
                 const StepResult r = sim.step(a);
-                accumulatedReward += static_cast<double>(r.reward);
+                accumulatedReward += stepValue(r);
                 ++depth;
 
                 if (r.done) {

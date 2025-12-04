@@ -3,3 +3,4 @@ build/
 *.o
 *.a
 agents/*/run_*.csv
+.vscode/
