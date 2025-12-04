@@ -23,6 +23,8 @@ agents:
 - `uct_c` / `exploration` (**obrigatório**): constante de exploração.
 - `threads` (opcional): threads usadas dentro do MCTS; se omitido, o runner define com base em `threads` global.
 - `seed` (opcional): fixa o RNG do MCTS.
+- `score_limit` (opcional): encerra o episodio quando o score atingir esse valor.
+- `time_limit_seconds` (opcional): encerra o episodio quando esse tempo for atingido.
 
 Exemplo em `agents/mcts_rollout/config.yaml`:
 
@@ -31,6 +33,8 @@ seed: 1337
 iterations: 5000
 rollout_depth: 100
 uct_c: 1.4142
+score_limit: 0          # defina >0 para cortar episodios longos por score
+time_limit_seconds: 0   # defina >0 para limitar a duracao em segundos
 # threads: 8  # opcional; se omitido, usa o valor fornecido pelo batch runner
 ```
 

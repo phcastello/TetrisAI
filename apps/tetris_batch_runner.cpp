@@ -353,6 +353,8 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
     const bool isMctsAgentCopy = isMctsAgent;
     const int totalEpisodesCopy = agentCfg.episodes;
     const unsigned int mctsThreadsCopy = mctsThreadBudget;
+    const std::optional<int> scoreLimitCopy = paramsOpt.has_value() ? paramsOpt->scoreLimit : std::nullopt;
+    const std::optional<double> timeLimitCopy = paramsOpt.has_value() ? paramsOpt->timeLimitSeconds : std::nullopt;
 
     auto launchEpisode = [&](int episodeIndex) {
         workers.emplace_back([&, episodeIndex]() {
@@ -383,7 +385,22 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
 
             agent->onEpisodeStart();
             const auto start = std::chrono::steady_clock::now();
+            std::string endReason = "game_over";
             while (!env.isGameOver()) {
+                if (scoreLimitCopy.has_value() && env.getScore() >= *scoreLimitCopy) {
+                    endReason = "score_limit";
+                    break;
+                }
+
+                if (timeLimitCopy.has_value()) {
+                    const double elapsedSeconds =
+                        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+                    if (elapsedSeconds >= *timeLimitCopy) {
+                        endReason = "time_limit";
+                        break;
+                    }
+                }
+
                 const Action action = agent->chooseAction(env);
                 const StepResult result = env.step(action);
                 if (result.done) {
@@ -404,6 +421,7 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
             report.totalTurns = env.getTurnNumber();
             report.holdsUsed = env.getHoldsUsed();
             report.elapsedSeconds = std::chrono::duration<float>(end - start).count();
+            report.endReason = endReason;
 
             reports[static_cast<std::size_t>(episodeIndex - 1)] = report;
 
@@ -415,6 +433,11 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
                           << " linhas=" << report.totalLines
                           << " turns=" << report.totalTurns
                           << " tempo=" << report.elapsedSeconds << "s";
+                if (endReason == "score_limit") {
+                    std::cout << " (encerrado por limite de score)";
+                } else if (endReason == "time_limit") {
+                    std::cout << " (encerrado por limite de tempo)";
+                }
                 if (isMctsAgentCopy) {
                     const double progress = static_cast<double>(finished) * 100.0 /
                                              static_cast<double>(std::max(1, totalEpisodesCopy));

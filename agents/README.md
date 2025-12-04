@@ -7,7 +7,7 @@ Agrupa implementações e experimentos de agentes de IA que consomem o SDK. Cada
 - Compile a partir da raiz com `cmake -B build -DCMAKE_BUILD_TYPE=Release` e `cmake --build build --config Release`.
 - Rode `./build/tetris_batch_runner` (usa `config/batch_runs.yaml` por padrão) ou `./build/tetris_batch_runner config/minha_config.yaml`.
 - Ajuste `config/batch_runs.yaml` para definir threads, agentes (`random`, `greedy` ou `mcts_rollout`), episódios e, opcionalmente, o caminho do YAML do MCTS.
-- Resultados de cada agente vão para `agents/<agent_dir>/run_<runId>.csv` com as colunas `run_id,episode_index,agent_name,mode_name,score,total_lines,total_turns,holds_used,elapsed_seconds,agent_config`.
+- Resultados de cada agente vão para `agents/<agent_dir>/run_<runId>.csv` com as colunas `run_id,episode_index,agent_name,mode_name,score,total_lines,total_turns,holds_used,elapsed_seconds,end_reason,agent_config`.
 - Use `--help` no executável para um exemplo rápido do formato do YAML e caminhos de saída.
 
 Exemplo mínimo com o Greedy:

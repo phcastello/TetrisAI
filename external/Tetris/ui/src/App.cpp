@@ -215,6 +215,10 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
     ::TetrisEnv env{};
     env.reset();
 
+    std::optional<int> scoreLimit{};
+    std::optional<double> timeLimitSeconds{};
+    std::string endReason = "game_over";
+
     std::unique_ptr<::Agent> agent{};
     switch (mode) {
         case PlayMode::RandomAI:
@@ -236,6 +240,8 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
             }
             std::cerr << "Config MCTS carregada de " << *configPath << '\n';
             report.agentConfig = buildMctsConfigString(params);
+            scoreLimit = params.scoreLimit;
+            timeLimitSeconds = params.timeLimitSeconds;
             agent = std::make_unique<::MctsRolloutAgent>(params);
             break;
         }
@@ -300,6 +306,20 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
             }
         }
 
+        if (isMctsMode) {
+            if (scoreLimit.has_value() && env.getScore() >= *scoreLimit) {
+                shouldStop = true;
+                endReason = "score_limit";
+            } else if (timeLimitSeconds.has_value() && elapsedSeconds >= *timeLimitSeconds) {
+                shouldStop = true;
+                endReason = "time_limit";
+            }
+        }
+
+        if (shouldStop) {
+            break;
+        }
+
         if (isMctsMode && !mctsActionPending && !env.isGameOver()) {
             launchMctsSearch(env);
         }
@@ -348,6 +368,7 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
     report.totalTurns = env.getTurnNumber();
     report.holdsUsed = env.getHoldsUsed();
     report.elapsedSeconds = elapsedSeconds;
+    report.endReason = endReason;
 
     return window_.isOpen();
 }

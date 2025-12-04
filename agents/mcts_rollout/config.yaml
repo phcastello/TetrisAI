@@ -2,6 +2,9 @@
 # A recompensa interna do MCTS agora usa scoreDelta para alinhar com o score do jogo.
 # As rollouts usam GreedyAgent como política base (fallback aleatório defensivo no código).
 seed: 1337
-iterations: 5000      # ajuste inicial; pode ser calibrado depois
-rollout_depth: 100     # profundidade máxima dos rollouts
+iterations: 200      # ajuste inicial; pode ser calibrado depois
+rollout_depth: 10     # profundidade máxima dos rollouts
 uct_c: 1.4142
+# Opcional: defina >0 para encerrar partidas longas automaticamente.
+score_limit: 0          # limite de score (0 desativa)
+time_limit_seconds: 10   # limite de tempo de episodio em segundos (0 desativa)

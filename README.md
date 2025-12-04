@@ -61,11 +61,11 @@ agents:
     mcts_config: agents/mcts_rollout/config.yaml  # opcional; usa busca padrão se omitido
 ```
 - Cada agente roda com até `threads` jogos simultâneos (limitado pelo número de episódios).
-- MCTS lê parâmetros de YAML simples (seed, iterations, rollout_depth, uct_c); o default fica em `agents/mcts_rollout/config.yaml`.
+- MCTS lê parâmetros de YAML simples (seed, iterations, rollout_depth, uct_c, limites opcionais de score/tempo); o default fica em `agents/mcts_rollout/config.yaml`.
 
 ### Saída e logs
 - Cada agente grava `agents/<agent_dir>/run_<runId>.csv` (ex.: `agents/heuristic_greedy/run_YYYYMMDD_HHMMSSmmm_greedy.csv`).
-- Colunas: `run_id,episode_index,agent_name,mode_name,score,total_lines,total_turns,holds_used,elapsed_seconds,agent_config`.
+- Colunas: `run_id,episode_index,agent_name,mode_name,score,total_lines,total_turns,holds_used,elapsed_seconds,end_reason,agent_config`.
 - `run_id` é um timestamp; `agent_config` inclui o snapshot da config do MCTS quando aplicável.
 
 ## GUI opcional (SFML)

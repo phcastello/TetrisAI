@@ -45,7 +45,7 @@ void appendEpisodeReportToRunFile(const EpisodeReport& rep,
     }
 
     if (isNewFile) {
-        file << "run_id,episode_index,agent_name,mode_name,score,total_lines,total_turns,holds_used,elapsed_seconds,agent_config\n";
+        file << "run_id,episode_index,agent_name,mode_name,score,total_lines,total_turns,holds_used,elapsed_seconds,end_reason,agent_config\n";
     }
 
     file << rep.runId << ','
@@ -57,6 +57,7 @@ void appendEpisodeReportToRunFile(const EpisodeReport& rep,
          << rep.totalTurns << ','
          << rep.holdsUsed << ','
          << std::fixed << std::setprecision(2) << rep.elapsedSeconds << ','
+         << rep.endReason << ','
          << rep.agentConfig
          << '\n';
 }

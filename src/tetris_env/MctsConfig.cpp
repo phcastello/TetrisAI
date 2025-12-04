@@ -138,6 +138,16 @@ bool loadMctsParamsFromYaml(const std::filesystem::path& filepath, ::MctsParams&
             if (tryParseUint32(value, parsedSeed)) {
                 params.seed = parsedSeed;
             }
+        } else if (key == "score_limit" || key == "maxScore" || key == "max_score") {
+            int parsed = 0;
+            if (tryParseInt(value, parsed) && parsed > 0) {
+                params.scoreLimit = parsed;
+            }
+        } else if (key == "time_limit_seconds" || key == "time_limit" || key == "max_time_seconds") {
+            double parsed = 0.0;
+            if (tryParseDouble(value, parsed) && parsed > 0.0) {
+                params.timeLimitSeconds = parsed;
+            }
         }
     }
 
@@ -161,6 +171,18 @@ std::string buildMctsConfigString(const ::MctsParams& params) {
         oss << *params.seed;
     } else {
         oss << "random";
+    }
+    oss << " scoreLimit=";
+    if (params.scoreLimit.has_value()) {
+        oss << *params.scoreLimit;
+    } else {
+        oss << "none";
+    }
+    oss << " timeLimitSeconds=";
+    if (params.timeLimitSeconds.has_value()) {
+        oss << *params.timeLimitSeconds;
+    } else {
+        oss << "none";
     }
     return oss.str();
 }

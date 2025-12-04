@@ -18,6 +18,7 @@ struct EpisodeReport {
     int holdsUsed = 0;
 
     float elapsedSeconds = 0.0f;
+    std::string endReason = "game_over"; // game_over | score_limit | time_limit
 };
 
 } // namespace tetris
