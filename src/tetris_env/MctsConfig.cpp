@@ -128,6 +128,11 @@ bool loadMctsParamsFromYaml(const std::filesystem::path& filepath, ::MctsParams&
                 params.exploration = parsed;
                 hasExploration = true;
             }
+        } else if (key == "threads" || key == "num_threads") {
+            int parsed = params.threads;
+            if (tryParseInt(value, parsed) && parsed > 0) {
+                params.threads = parsed;
+            }
         } else if (key == "seed") {
             std::uint32_t parsedSeed{};
             if (tryParseUint32(value, parsedSeed)) {
@@ -150,6 +155,7 @@ std::string buildMctsConfigString(const ::MctsParams& params) {
     oss << "iterations=" << params.iterations
         << " maxDepth=" << params.maxDepth
         << " exploration=" << params.exploration
+        << " threads=" << params.threads
         << " seed=";
     if (params.seed.has_value()) {
         oss << *params.seed;

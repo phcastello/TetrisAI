@@ -12,6 +12,7 @@ struct MctsParams {
     int iterations = 0;
     int maxDepth = 0;
     double exploration = 0.0;
+    int threads = 1;
     std::optional<std::uint32_t> seed{};
 };
 
@@ -24,6 +25,4 @@ public:
 private:
     MctsParams params_;
     std::mt19937 rng_;
-
-    double stepValue(const StepResult& r) const;
 };

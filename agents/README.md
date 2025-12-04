@@ -24,3 +24,7 @@ agents:
 ```
 
 Para o agente heurístico ganancioso, as execuções são gravadas em `agents/heuristic_greedy/` e a config de referência fica em `agents/heuristic_greedy/config.yaml`.
+
+### Observações específicas
+- `mcts_rollout`: episódios rodam de forma sequencial; o valor de `threads` do runner é repassado para o MCTS paralelizar cada jogo. Config YAML em `agents/mcts_rollout/config.yaml` ou `config/mcts_rollout.yaml`.
+- `random`: não requer configuração.

@@ -75,7 +75,9 @@ void printUsage() {
               << "        episodes: 100\n"
               << "        mcts_config: agents/mcts_rollout/config.yaml\n\n"
               << "- Os resultados de cada agente sao gravados em:\n"
-              << "    agents/<agent_dir>/run_<runId>.csv\n";
+              << "    agents/<agent_dir>/run_<runId>.csv\n"
+              << "- Agentes MCTS rodam episodios de forma sequencial e usam o numero de\n"
+              << "  threads configurado para paralelizar o proprio jogo.\n";
 }
 
 std::optional<BatchConfig> loadBatchConfig(const std::string& path) {
@@ -259,6 +261,10 @@ std::string agentFilenameSuffixForType(const std::string& type) {
     return "";
 }
 
+bool isMctsType(const std::string& type) {
+    return type.find("mcts") != std::string::npos;
+}
+
 std::optional<std::filesystem::path> resolveMctsConfigForAgent(const AgentBatchConfig& agentCfg,
                                                                const std::filesystem::path& configBaseDir) {
     namespace fs = std::filesystem;
@@ -297,8 +303,11 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
     const std::string runId = tetris::makeRunIdTimestamp();
     const std::string agentDir = agentDirForType(agentCfg.type);
     const std::string agentFilenameSuffix = agentFilenameSuffixForType(agentCfg.type);
-    const unsigned int threadsToUse = std::max(
-        1u, std::min(maxConcurrentThreads, static_cast<unsigned int>(agentCfg.episodes)));
+    const bool isMctsAgent = isMctsType(agentCfg.type);
+    const unsigned int threadsForEpisodes = isMctsAgent
+        ? 1u
+        : std::max(1u, std::min(maxConcurrentThreads, static_cast<unsigned int>(agentCfg.episodes)));
+    const unsigned int mctsThreadBudget = isMctsAgent ? std::max(1u, maxConcurrentThreads) : 1u;
 
     std::optional<MctsParams> mctsParams{};
     std::string agentConfigString;
@@ -321,6 +330,7 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
             return false;
         }
 
+        params.threads = static_cast<int>(mctsThreadBudget);
         mctsParams = params;
         agentConfigString = tetris::buildMctsConfigString(params);
 
@@ -329,9 +339,10 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
 
     std::vector<tetris::EpisodeReport> reports(static_cast<std::size_t>(agentCfg.episodes));
     std::vector<std::thread> workers;
-    workers.reserve(std::min<unsigned int>(threadsToUse, static_cast<unsigned int>(agentCfg.episodes)));
+    workers.reserve(std::min<unsigned int>(threadsForEpisodes, static_cast<unsigned int>(agentCfg.episodes)));
     std::mutex logMutex;
     std::atomic_bool success{true};
+    std::atomic<int> completedEpisodes{0};
 
     const std::optional<MctsParams> paramsOpt = mctsParams;
     const std::string agentNameCopy = agentCfg.name;
@@ -339,6 +350,9 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
     const std::string runIdCopy = runId;
     const std::string agentConfigCopy = agentConfigString;
     const std::string agentTypeCopy = agentCfg.type;
+    const bool isMctsAgentCopy = isMctsAgent;
+    const int totalEpisodesCopy = agentCfg.episodes;
+    const unsigned int mctsThreadsCopy = mctsThreadBudget;
 
     auto launchEpisode = [&](int episodeIndex) {
         workers.emplace_back([&, episodeIndex]() {
@@ -356,6 +370,7 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
                     return;
                 }
                 MctsParams paramsCopy = *paramsOpt;
+                paramsCopy.threads = static_cast<int>(mctsThreadsCopy);
                 agent = std::make_unique<MctsRolloutAgent>(paramsCopy);
             } else if (agentTypeCopy == "greedy") {
                 agent = std::make_unique<GreedyAgent>();
@@ -394,11 +409,19 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
 
             {
                 std::lock_guard<std::mutex> lock(logMutex);
+                const int finished = completedEpisodes.fetch_add(1, std::memory_order_relaxed) + 1;
                 std::cout << "[Agente " << agentNameCopy << "] episodio " << episodeIndex
                           << " concluido: score=" << report.score
                           << " linhas=" << report.totalLines
                           << " turns=" << report.totalTurns
-                          << " tempo=" << report.elapsedSeconds << "s\n";
+                          << " tempo=" << report.elapsedSeconds << "s";
+                if (isMctsAgentCopy) {
+                    const double progress = static_cast<double>(finished) * 100.0 /
+                                             static_cast<double>(std::max(1, totalEpisodesCopy));
+                    std::cout << " progresso=" << finished << '/' << totalEpisodesCopy
+                              << " (" << progress << "%)";
+                }
+                std::cout << '\n';
             }
         });
     };
@@ -406,7 +429,7 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
     int launched = 0;
     while (launched < agentCfg.episodes) {
         while (launched < agentCfg.episodes &&
-               workers.size() < threadsToUse) {
+               workers.size() < threadsForEpisodes) {
             launchEpisode(launched + 1);
             ++launched;
         }
@@ -448,8 +471,11 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
 
     std::cout << "[Agente " << agentCfg.name << "] run_id=" << runId
               << " episodios=" << reports.size()
-              << " threads=" << threadsToUse
-              << " avg_score=" << avgScore
+              << " threads=" << threadsForEpisodes;
+    if (isMctsAgent) {
+        std::cout << " mcts_threads=" << mctsThreadBudget;
+    }
+    std::cout << " avg_score=" << avgScore
               << " avg_lines=" << avgLines
               << " -> agents/" << agentDir << "/run_" << runId << agentFilenameSuffix << ".csv\n";
 
@@ -488,14 +514,21 @@ int main(int argc, char** argv) {
     }
 
     for (const auto& agentCfg : config.agents) {
+        const bool isMctsAgent = isMctsType(agentCfg.type);
         unsigned int threadsForThisAgent = maxThreads;
-        if (agentCfg.episodes < static_cast<int>(threadsForThisAgent)) {
+        if (!isMctsAgent && agentCfg.episodes < static_cast<int>(threadsForThisAgent)) {
             threadsForThisAgent = static_cast<unsigned int>(std::max(1, agentCfg.episodes));
         }
 
-        std::cout << "Executando agente '" << agentCfg.name << "' (" << agentCfg.type
-                  << ") com ate " << 
-                  " thread(s) simultaneas (threadsForThisAgent1 thread por jogo)...\n";
+        if (isMctsAgent) {
+            std::cout << "Executando agente '" << agentCfg.name << "' (" << agentCfg.type
+                      << ") com episodios sequenciais; ate " << threadsForThisAgent
+                      << " thread(s) por jogo MCTS...\n";
+        } else {
+            std::cout << "Executando agente '" << agentCfg.name << "' (" << agentCfg.type
+                      << ") com ate " << threadsForThisAgent
+                      << " jogo(s) em paralelo...\n";
+        }
 
         const bool ok = runEpisodesForAgent(agentCfg, threadsForThisAgent, config.baseDir);
         if (!ok) {

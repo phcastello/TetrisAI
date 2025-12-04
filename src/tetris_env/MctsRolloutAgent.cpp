@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -23,39 +24,44 @@ struct Node {
     std::vector<int> children;
 };
 
-} // namespace
+struct SearchResult {
+    std::vector<int> visits;
+    std::vector<double> totalValue;
+};
 
-MctsRolloutAgent::MctsRolloutAgent(const MctsParams& params) : params_(params) {
-    if (params_.seed.has_value()) {
-        rng_.seed(*params_.seed);
-    } else {
-        rng_.seed(std::random_device{}());
-    }
+bool actionsEqual(const Action& a, const Action& b) {
+    return a.rotation == b.rotation && a.targetX == b.targetX && a.useHold == b.useHold;
 }
 
-double MctsRolloutAgent::stepValue(const StepResult& r) const {
-    return static_cast<double>(r.scoreDelta);
+int findRootActionIndex(const std::vector<Action>& actions, const Action& target) {
+    for (std::size_t i = 0; i < actions.size(); ++i) {
+        if (actionsEqual(actions[i], target)) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
 }
 
-Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
-    if (params_.iterations <= 0 || params_.maxDepth <= 0 || params_.exploration <= 0.0) {
-        return Action{};
+SearchResult runSearch(const TetrisEnv& env,
+                       const std::vector<Action>& rootActions,
+                       const MctsParams& params,
+                       int iterations,
+                       std::mt19937& rng) {
+    SearchResult result{};
+    result.visits.assign(rootActions.size(), 0);
+    result.totalValue.assign(rootActions.size(), 0.0);
+
+    if (iterations <= 0 || params.maxDepth <= 0) {
+        return result;
     }
 
-    if (env.isGameOver()) {
-        return Action{};
-    }
-
-    const auto rootActions = env.getValidActions();
-    if (rootActions.empty()) {
-        return Action{};
-    }
+    auto stepValue = [](const StepResult& r) { return static_cast<double>(r.scoreDelta); };
 
     std::vector<Node> nodes;
+    nodes.reserve(static_cast<std::size_t>(iterations) + 1);
     nodes.emplace_back();
 
-    const int rootIndex = 0;
-    Node& root = nodes[rootIndex];
+    Node& root = nodes.front();
     root.parent = -1;
     root.actionFromParent = Action{};
     root.visits = 0;
@@ -65,9 +71,9 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
 
     GreedyAgent rolloutPolicy;
 
-    for (int i = 0; i < params_.iterations; ++i) {
+    for (int i = 0; i < iterations; ++i) {
         TetrisEnv sim = env.clone();
-        int nodeIndex = rootIndex;
+        int nodeIndex = 0;
         double accumulatedReward = 0.0;
         int depth = 0;
 
@@ -75,7 +81,7 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
         while (true) {
             Node& node = nodes[nodeIndex];
 
-            if (node.terminal || depth >= params_.maxDepth) {
+            if (node.terminal || depth >= params.maxDepth) {
                 break;
             }
 
@@ -95,7 +101,7 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
             for (int childIndex : node.children) {
                 const Node& child = nodes[childIndex];
                 const double q = child.visits > 0 ? (child.totalValue / child.visits) : 0.0;
-                const double u = params_.exploration *
+                const double u = params.exploration *
                                  std::sqrt(parentVisitsLog / (1.0 + static_cast<double>(child.visits)));
                 const double score = q + u;
 
@@ -121,9 +127,9 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
 
         // Expansion
         Node& selectedNode = nodes[nodeIndex];
-        if (!selectedNode.terminal && depth < params_.maxDepth && !selectedNode.untriedActions.empty()) {
+        if (!selectedNode.terminal && depth < params.maxDepth && !selectedNode.untriedActions.empty()) {
             std::uniform_int_distribution<std::size_t> dist(0, selectedNode.untriedActions.size() - 1);
-            const std::size_t actionIdx = dist(rng_);
+            const std::size_t actionIdx = dist(rng);
             Action a = selectedNode.untriedActions[actionIdx];
             selectedNode.untriedActions[actionIdx] = selectedNode.untriedActions.back();
             selectedNode.untriedActions.pop_back();
@@ -154,8 +160,8 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
 
         // Rollout
         const Node& rolloutNode = nodes[nodeIndex];
-        if (!rolloutNode.terminal && depth < params_.maxDepth) {
-            while (!sim.isGameOver() && depth < params_.maxDepth) {
+        if (!rolloutNode.terminal && depth < params.maxDepth) {
+            while (!sim.isGameOver() && depth < params.maxDepth) {
                 const auto actions = sim.getValidActions();
                 if (actions.empty()) {
                     break;
@@ -167,15 +173,14 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
 
                 bool valid = false;
                 for (const auto& candidate : actions) {
-                    if (candidate.rotation == a.rotation && candidate.targetX == a.targetX &&
-                        candidate.useHold == a.useHold) {
+                    if (actionsEqual(candidate, a)) {
                         valid = true;
                         break;
                     }
                 }
                 if (!valid) {
                     std::uniform_int_distribution<std::size_t> dist(0, actions.size() - 1);
-                    a = actions[dist(rng_)];
+                    a = actions[dist(rng)];
                 }
 
                 const StepResult r = sim.step(a);
@@ -198,32 +203,106 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
         }
     }
 
+    for (int childIndex : nodes.front().children) {
+        const Node& child = nodes[childIndex];
+        const int idx = findRootActionIndex(rootActions, child.actionFromParent);
+        if (idx >= 0) {
+            result.visits[static_cast<std::size_t>(idx)] += child.visits;
+            result.totalValue[static_cast<std::size_t>(idx)] += child.totalValue;
+        }
+    }
+
+    return result;
+}
+
+} // namespace
+
+MctsRolloutAgent::MctsRolloutAgent(const MctsParams& params) : params_(params) {
+    if (params_.seed.has_value()) {
+        rng_.seed(*params_.seed);
+    } else {
+        rng_.seed(std::random_device{}());
+    }
+}
+
+Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
+    if (params_.iterations <= 0 || params_.maxDepth <= 0 || params_.exploration <= 0.0) {
+        return Action{};
+    }
+
+    if (env.isGameOver()) {
+        return Action{};
+    }
+
+    const auto rootActions = env.getValidActions();
+    if (rootActions.empty()) {
+        return Action{};
+    }
+
+    const int totalIterations = params_.iterations;
+    const int maxThreads = std::max(1, params_.threads);
+    const int workerCount = std::max(1, std::min(totalIterations, maxThreads));
+    const int baseIterations = totalIterations / workerCount;
+    const int remainder = totalIterations % workerCount;
+
+    std::vector<SearchResult> partial(static_cast<std::size_t>(workerCount));
+
+    if (workerCount == 1) {
+        partial[0] = runSearch(env, rootActions, params_, totalIterations, rng_);
+    } else {
+        std::vector<std::thread> workers;
+        workers.reserve(static_cast<std::size_t>(workerCount));
+
+        std::vector<std::uint32_t> seeds(static_cast<std::size_t>(workerCount));
+        for (int i = 0; i < workerCount; ++i) {
+            seeds[static_cast<std::size_t>(i)] = rng_();
+        }
+
+        for (int i = 0; i < workerCount; ++i) {
+            const int iterationsForThread = baseIterations + (i < remainder ? 1 : 0);
+            workers.emplace_back([&, i, iterationsForThread]() {
+                std::mt19937 localRng(seeds[static_cast<std::size_t>(i)]);
+                partial[static_cast<std::size_t>(i)] =
+                    runSearch(env, rootActions, params_, iterationsForThread, localRng);
+            });
+        }
+
+        for (auto& w : workers) {
+            if (w.joinable()) {
+                w.join();
+            }
+        }
+    }
+
+    std::vector<int> totalVisits(rootActions.size(), 0);
+    std::vector<double> totalValues(rootActions.size(), 0.0);
+    for (const auto& res : partial) {
+        for (std::size_t i = 0; i < rootActions.size(); ++i) {
+            totalVisits[i] += res.visits[i];
+            totalValues[i] += res.totalValue[i];
+        }
+    }
+
     Action bestAction = rootActions.front();
     double bestValue = -std::numeric_limits<double>::infinity();
     bool foundVisitedChild = false;
 
-    const Node& finalRoot = nodes[rootIndex];
-    for (int childIndex : finalRoot.children) {
-        const Node& child = nodes[childIndex];
-        if (child.visits == 0) {
+    for (std::size_t i = 0; i < rootActions.size(); ++i) {
+        if (totalVisits[i] == 0) {
             continue;
         }
 
-        const double meanValue = child.totalValue / child.visits;
+        const double meanValue = totalValues[i] / static_cast<double>(totalVisits[i]);
         if (meanValue > bestValue) {
             bestValue = meanValue;
-            bestAction = child.actionFromParent;
+            bestAction = rootActions[i];
             foundVisitedChild = true;
         }
     }
 
     if (!foundVisitedChild) {
-        if (!finalRoot.untriedActions.empty()) {
-            std::uniform_int_distribution<std::size_t> dist(0, finalRoot.untriedActions.size() - 1);
-            bestAction = finalRoot.untriedActions[dist(rng_)];
-        } else if (!finalRoot.children.empty()) {
-            bestAction = nodes[finalRoot.children.front()].actionFromParent;
-        }
+        std::uniform_int_distribution<std::size_t> dist(0, rootActions.size() - 1);
+        bestAction = rootActions[dist(rng_)];
     }
 
     return bestAction;
