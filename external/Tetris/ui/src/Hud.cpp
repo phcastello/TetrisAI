@@ -36,7 +36,13 @@ bool Hud::showMenu(sf::RenderWindow& window, const config::Layout& layout, PlayM
                     currentMode = PlayMode::GreedyAI;
                 }
                 if (event.key.code == sf::Keyboard::Num4 || event.key.code == sf::Keyboard::Numpad4) {
-                    currentMode = PlayMode::MctsAI;
+                    currentMode = PlayMode::MctsGreedyAI;
+                }
+                if (event.key.code == sf::Keyboard::Num5 || event.key.code == sf::Keyboard::Numpad5) {
+                    currentMode = PlayMode::MctsDefaultAI;
+                }
+                if (event.key.code == sf::Keyboard::Num6 || event.key.code == sf::Keyboard::Numpad6) {
+                    currentMode = PlayMode::MctsTranspositionAI;
                 }
             }
         }
@@ -56,7 +62,7 @@ bool Hud::showMenu(sf::RenderWindow& window, const config::Layout& layout, PlayM
         const auto playBounds = play.getLocalBounds();
         play.setPosition(
             layout.desktop.width / 2.0f - playBounds.width / 2.0f,
-            layout.desktop.height * 0.64f);
+            layout.desktop.height * 0.78f);
         window.draw(play);
 
         sf::Text exit("Pressione ESC para Sair", font_, 40);
@@ -64,7 +70,7 @@ bool Hud::showMenu(sf::RenderWindow& window, const config::Layout& layout, PlayM
         const auto exitBounds = exit.getLocalBounds();
         exit.setPosition(
             layout.desktop.width / 2.0f - exitBounds.width / 2.0f,
-            layout.desktop.height * 0.73f);
+            layout.desktop.height * 0.84f);
         window.draw(exit);
 
         sf::Text signature("Criadores: Pedro Hasson Castello, Ruan Pablo Martins, Patrick Correa", font_, 28);
@@ -72,7 +78,7 @@ bool Hud::showMenu(sf::RenderWindow& window, const config::Layout& layout, PlayM
         const auto signatureBounds = signature.getLocalBounds();
         signature.setPosition(
             layout.desktop.width / 2.0f - signatureBounds.width / 2.0f,
-            layout.desktop.height * 0.8f);
+            layout.desktop.height * 0.9f);
         window.draw(signature);
 
         sf::Text modesTitle("Escolha o modo:", font_, 40);
@@ -94,9 +100,11 @@ bool Hud::showMenu(sf::RenderWindow& window, const config::Layout& layout, PlayM
         };
 
         drawOption("1 - Humano (Teclado)", layout.desktop.height * 0.42f, currentMode == PlayMode::Human);
-        drawOption("2 - Random AI", layout.desktop.height * 0.48f, currentMode == PlayMode::RandomAI);
-        drawOption("3 - Greedy AI", layout.desktop.height * 0.54f, currentMode == PlayMode::GreedyAI);
-        drawOption("4 - MCTS Rollout AI", layout.desktop.height * 0.60f, currentMode == PlayMode::MctsAI);
+        drawOption("2 - Random AI", layout.desktop.height * 0.46f, currentMode == PlayMode::RandomAI);
+        drawOption("3 - Greedy AI", layout.desktop.height * 0.50f, currentMode == PlayMode::GreedyAI);
+        drawOption("4 - MCTS Greedy", layout.desktop.height * 0.54f, currentMode == PlayMode::MctsGreedyAI);
+        drawOption("5 - MCTS Default (rollout aleatorio)", layout.desktop.height * 0.58f, currentMode == PlayMode::MctsDefaultAI);
+        drawOption("6 - MCTS com tabela de transposicao", layout.desktop.height * 0.62f, currentMode == PlayMode::MctsTranspositionAI);
 
         window.display();
     }

@@ -18,6 +18,8 @@
 #include "tetris_env/GreedyAgent.hpp"
 #include "tetris_env/MctsConfig.hpp"
 #include "tetris_env/MctsRolloutAgent.hpp"
+#include "tetris_env/mcts/DefaultRolloutAgent.hpp"
+#include "tetris_env/mcts/TranspositionRolloutAgent.hpp"
 #include "tetris_env/RandomAgent.hpp"
 #include "tetris_env/RunLogging.hpp"
 #include "tetris_env/TetrisEnv.hpp"
@@ -32,11 +34,21 @@ std::string filenameSuffixForMode(PlayMode mode) {
             return "_random";
         case PlayMode::GreedyAI:
             return "_greedy";
-        case PlayMode::MctsAI:
-            return "_MCTS";
+        case PlayMode::MctsGreedyAI:
+            return "_MCTS_greedy";
+        case PlayMode::MctsDefaultAI:
+            return "_MCTS_default";
+        case PlayMode::MctsTranspositionAI:
+            return "_MCTS_tt";
         default:
             return "";
     }
+}
+
+bool isMctsMode(PlayMode mode) {
+    return mode == PlayMode::MctsGreedyAI ||
+           mode == PlayMode::MctsDefaultAI ||
+           mode == PlayMode::MctsTranspositionAI;
 }
 
 } // namespace
@@ -85,10 +97,22 @@ int App::run() {
                     agentDir = "heuristic_greedy";
                     report.agentConfig.clear();
                     break;
-                case PlayMode::MctsAI:
-                    report.agentName = "MctsRolloutAgent";
-                    report.modeName = "MctsAI";
-                    agentDir = "mcts_rollout";
+                case PlayMode::MctsGreedyAI:
+                    report.agentName = "MctsGreedyRolloutAgent";
+                    report.modeName = "MctsGreedyAI";
+                    agentDir = "mcts_greedy";
+                    report.agentConfig.clear();
+                    break;
+                case PlayMode::MctsDefaultAI:
+                    report.agentName = "MctsDefaultRolloutAgent";
+                    report.modeName = "MctsDefaultAI";
+                    agentDir = "mcts_default";
+                    report.agentConfig.clear();
+                    break;
+                case PlayMode::MctsTranspositionAI:
+                    report.agentName = "MctsTranspositionAgent";
+                    report.modeName = "MctsTranspositionAI";
+                    agentDir = "mcts_transposition";
                     report.agentConfig.clear();
                     break;
                 default:
@@ -228,11 +252,21 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
             agent = std::make_unique<::GreedyAgent>();
             report.agentConfig.clear();
             break;
-        case PlayMode::MctsAI: {
+        case PlayMode::MctsGreedyAI:
+        case PlayMode::MctsDefaultAI:
+        case PlayMode::MctsTranspositionAI: {
             ::MctsParams params{};
-            const auto configPath = findMctsConfigPath();
+            std::string agentDir = "mcts_greedy";
+            if (mode == PlayMode::MctsDefaultAI) {
+                agentDir = "mcts_default";
+            } else if (mode == PlayMode::MctsTranspositionAI) {
+                agentDir = "mcts_transposition";
+            }
+
+            const auto configPath = findMctsConfigPath(agentDir);
             if (!configPath.has_value()) {
-                std::cerr << "Erro: arquivo de configuracao do MCTS nao encontrado (procure agents/mcts_rollout/config.yaml).\n";
+                std::cerr << "Erro: arquivo de configuracao do MCTS nao encontrado (procure agents/"
+                          << agentDir << "/config.yaml).\n";
                 return false;
             }
             if (!loadMctsParamsFromYaml(*configPath, params)) {
@@ -242,7 +276,14 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
             report.agentConfig = buildMctsConfigString(params);
             scoreLimit = params.scoreLimit;
             timeLimitSeconds = params.timeLimitSeconds;
-            agent = std::make_unique<::MctsRolloutAgent>(params);
+
+            if (mode == PlayMode::MctsDefaultAI) {
+                agent = std::make_unique<::MctsDefaultRolloutAgent>(params);
+            } else if (mode == PlayMode::MctsTranspositionAI) {
+                agent = std::make_unique<::MctsTranspositionAgent>(params);
+            } else {
+                agent = std::make_unique<::MctsRolloutAgent>(params);
+            }
             break;
         }
         case PlayMode::Human:
@@ -255,14 +296,14 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
     sf::Clock clock;
     float accumulator = 0.0f;
     const float actionInterval = 0.4f;
-    const bool isMctsMode = mode == PlayMode::MctsAI;
+    const bool mctsSelected = isMctsMode(mode);
     float elapsedSeconds = 0.0f;
 
     std::future<::Action> mctsFuture;
     bool mctsActionPending = false;
 
     auto launchMctsSearch = [&](const ::TetrisEnv& state) {
-        if (!isMctsMode || mctsActionPending || state.isGameOver()) {
+        if (!mctsSelected || mctsActionPending || state.isGameOver()) {
             return;
         }
         ::TetrisEnv snapshot = state.clone();
@@ -283,7 +324,7 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
         return mctsFuture.get();
     };
 
-    if (isMctsMode) {
+    if (mctsSelected) {
         launchMctsSearch(env);
     }
 
@@ -306,7 +347,7 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
             }
         }
 
-        if (isMctsMode) {
+        if (mctsSelected) {
             if (scoreLimit.has_value() && env.getScore() >= *scoreLimit) {
                 shouldStop = true;
                 endReason = "score_limit";
@@ -320,7 +361,7 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
             break;
         }
 
-        if (isMctsMode && !mctsActionPending && !env.isGameOver()) {
+        if (mctsSelected && !mctsActionPending && !env.isGameOver()) {
             launchMctsSearch(env);
         }
 
@@ -332,7 +373,7 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
                 bool actionReady = true;
                 ::Action action{};
 
-                if (isMctsMode) {
+                if (mctsSelected) {
                     auto readyAction = pollMctsAction();
                     if (!readyAction.has_value()) {
                         actionReady = false;
@@ -349,7 +390,7 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
                     if (result.done) {
                         shouldStop = true;
                     }
-                    if (isMctsMode && !shouldStop) {
+                    if (mctsSelected && !shouldStop) {
                         launchMctsSearch(env);
                     }
                 }
@@ -359,7 +400,7 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
         renderer_->draw(window_, env.game(), font_);
     }
 
-    if (isMctsMode && mctsActionPending) {
+    if (mctsSelected && mctsActionPending) {
         mctsFuture.wait();
     }
 

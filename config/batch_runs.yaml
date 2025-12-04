@@ -9,16 +9,26 @@ threads: 0
 # Lista de agentes a serem executados em batch.
 agents:
   - name: random_baseline
-    type: random          # suporta: "random", "greedy", "mcts_rollout"
+    type: random          # suporta: random, greedy, mcts_greedy (ou mcts_rollout), mcts_default, mcts_transposition
     episodes: 10         # número de episódios para este agente
 
   - name: greedy_baseline
     type: greedy
     episodes: 10
 
-  - name: mcts_default
-    type: mcts_rollout
+  - name: mcts_greedy
+    type: mcts_greedy
     episodes: 10
     # Caminho opcional para o YAML de configuração do MCTS.
-    # Se omitido, usar a mesma busca que a GUI usa (agents/mcts_rollout/config.yaml, config/mcts_rollout.yaml, etc).
-    mcts_config: agents/mcts_rollout/config.yaml
+    # Se omitido, usar a mesma busca que a GUI usa (agents/<dir>/config.yaml, config/<dir>.yaml, etc).
+    mcts_config: agents/mcts_greedy/config.yaml
+
+  - name: mcts_default_rollout
+    type: mcts_default
+    episodes: 10
+    mcts_config: agents/mcts_default/config.yaml
+
+  - name: mcts_tt
+    type: mcts_transposition
+    episodes: 10
+    mcts_config: agents/mcts_transposition/config.yaml

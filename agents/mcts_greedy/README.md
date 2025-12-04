@@ -1,21 +1,21 @@
-# MCTS Rollout Agent (alias para mcts_greedy)
+# MCTS Greedy Agent
 
-Agente de Monte Carlo Tree Search guiado por rollouts com `GreedyAgent`. Usa UCT para seleção, recompensa interna baseada em `scoreDelta` e rollouts greedy com fallback aleatório defensivo. Este diretório foi mantido como alias; as configs equivalentes agora vivem em `agents/mcts_greedy`.
+Agente de Monte Carlo Tree Search com rollouts guiados pelo `GreedyAgent`. Usa UCT para seleção, recompensa interna baseada em `scoreDelta` e fallback aleatório defensivo quando necessário.
 
 ## Como usar
-- O batch runner reconhece `type: mcts_rollout`. Exemplo:
+- O batch runner reconhece `type: mcts_greedy` (ou o alias `mcts_rollout`). Exemplo:
 
 ```yaml
-threads: 8            # orçamento total de threads
+threads: 8
 agents:
-  - name: mcts_default
-    type: mcts_rollout
+  - name: mcts_greedy
+    type: mcts_greedy
     episodes: 10
-    mcts_config: agents/mcts_rollout/config.yaml
+    mcts_config: agents/mcts_greedy/config.yaml
 ```
 
-- Episódios MCTS são executados de forma sequencial; o orçamento de `threads` do runner é repassado para o próprio MCTS acelerar cada jogo.
-- Se `mcts_config` não for informado, o runner procura por `agents/mcts_rollout/config.yaml` ou `config/mcts_rollout.yaml`.
+- Episódios MCTS são executados de forma sequencial; o valor de `threads` do runner é repassado para o próprio MCTS acelerar cada jogo.
+- Se `mcts_config` não for informado, o runner procura por `agents/mcts_greedy/config.yaml`, `config/mcts_greedy.yaml` ou os caminhos equivalentes em `..`.
 
 ## Configuração (YAML)
 - `iterations` (**obrigatório**): simulações por decisão.
@@ -26,7 +26,7 @@ agents:
 - `score_limit` (opcional): encerra o episodio quando o score atingir esse valor.
 - `time_limit_seconds` (opcional): encerra o episodio quando esse tempo for atingido.
 
-Exemplo em `agents/mcts_rollout/config.yaml`:
+Exemplo em `agents/mcts_greedy/config.yaml`:
 
 ```yaml
 seed: 1337

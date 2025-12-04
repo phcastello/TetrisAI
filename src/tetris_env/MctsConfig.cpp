@@ -6,6 +6,7 @@
 #include <iostream>
 #include <limits>
 #include <sstream>
+#include <vector>
 
 namespace tetris {
 namespace {
@@ -58,19 +59,28 @@ bool tryParseUint32(const std::string& value, std::uint32_t& out) {
 
 } // namespace
 
-std::optional<std::filesystem::path> findMctsConfigPath() {
+std::optional<std::filesystem::path> findMctsConfigPath(const std::string& agentDir) {
     namespace fs = std::filesystem;
-    const std::array<const char*, 5> candidates{
-        "agents/mcts_rollout/config.yaml",
-        "config/mcts_rollout.yaml",
-        "../agents/mcts_rollout/config.yaml",
-        "../config/mcts_rollout.yaml",
-        "agents/mcts_rollout.yaml"};
+    std::vector<fs::path> candidates{
+        fs::path("agents") / agentDir / "config.yaml",
+        fs::path("config") / (agentDir + ".yaml"),
+        fs::path("..") / "agents" / agentDir / "config.yaml",
+        fs::path("..") / "config" / (agentDir + ".yaml"),
+        fs::path("agents") / (agentDir + ".yaml"),
+    };
 
-    for (const auto* candidate : candidates) {
-        fs::path path(candidate);
-        if (fs::exists(path)) {
-            return path;
+    if (agentDir == "mcts_greedy") {
+        // Suporte retroativo ao nome antigo.
+        candidates.push_back("agents/mcts_rollout/config.yaml");
+        candidates.push_back("config/mcts_rollout.yaml");
+        candidates.push_back("../agents/mcts_rollout/config.yaml");
+        candidates.push_back("../config/mcts_rollout.yaml");
+        candidates.push_back("agents/mcts_rollout.yaml");
+    }
+
+    for (const auto& candidate : candidates) {
+        if (fs::exists(candidate)) {
+            return candidate;
         }
     }
     return std::nullopt;

@@ -11,7 +11,9 @@ add_subdirectory(external/Tetris/engine)
 add_library(tetris_env
   src/tetris_env/TetrisEnv.cpp
   src/tetris_env/RandomAgent.cpp
-  src/tetris_env/MctsRolloutAgent.cpp
+  src/tetris_env/mcts/greedy/MctsGreedyRolloutAgent.cpp
+  src/tetris_env/mcts/default/MctsDefaultRolloutAgent.cpp
+  src/tetris_env/mcts/transposition/MctsTranspositionAgent.cpp
   src/tetris_env/MctsConfig.cpp
   src/tetris_env/RunLogging.cpp
   src/tetris_env/GreedyAgent.cpp

@@ -6,7 +6,7 @@ Agrupa implementações e experimentos de agentes de IA que consomem o SDK. Cada
 
 - Compile a partir da raiz com `cmake -B build -DCMAKE_BUILD_TYPE=Release` e `cmake --build build --config Release`.
 - Rode `./build/tetris_batch_runner` (usa `config/batch_runs.yaml` por padrão) ou `./build/tetris_batch_runner config/minha_config.yaml`.
-- Ajuste `config/batch_runs.yaml` para definir threads, agentes (`random`, `greedy` ou `mcts_rollout`), episódios e, opcionalmente, o caminho do YAML do MCTS.
+- Ajuste `config/batch_runs.yaml` para definir threads, agentes (`random`, `greedy`, `mcts_greedy`/`mcts_rollout`, `mcts_default`, `mcts_transposition`), episódios e, opcionalmente, o caminho do YAML do MCTS.
 - Resultados de cada agente vão para `agents/<agent_dir>/run_<runId>.csv` com as colunas `run_id,episode_index,agent_name,mode_name,score,total_lines,total_turns,holds_used,elapsed_seconds,end_reason,agent_config`.
 - Use `--help` no executável para um exemplo rápido do formato do YAML e caminhos de saída.
 
@@ -26,5 +26,7 @@ agents:
 Para o agente heurístico ganancioso, as execuções são gravadas em `agents/heuristic_greedy/` e a config de referência fica em `agents/heuristic_greedy/config.yaml`.
 
 ### Observações específicas
-- `mcts_rollout`: episódios rodam de forma sequencial; o valor de `threads` do runner é repassado para o MCTS paralelizar cada jogo. Config YAML em `agents/mcts_rollout/config.yaml` ou `config/mcts_rollout.yaml`.
+- `mcts_greedy` (alias `mcts_rollout`): episódios rodam de forma sequencial; o valor de `threads` do runner é repassado para o MCTS paralelizar cada jogo. Config YAML em `agents/mcts_greedy/config.yaml` ou `config/mcts_greedy.yaml`.
+- `mcts_default`: usa rollouts aleatórios; configuração em `agents/mcts_default/config.yaml`.
+- `mcts_transposition`: rollouts greedy com tabela de transposição simples; configuração em `agents/mcts_transposition/config.yaml`.
 - `random`: não requer configuração.

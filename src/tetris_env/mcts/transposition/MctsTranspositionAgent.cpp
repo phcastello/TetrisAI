@@ -1,12 +1,15 @@
-#include "tetris_env/MctsRolloutAgent.hpp"
+#include "tetris_env/mcts/TranspositionRolloutAgent.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
+#include "tetris/EngineConfig.hpp"
 #include "tetris_env/GreedyAgent.hpp"
 #include "tetris_env/StepResult.hpp"
 
@@ -29,6 +32,66 @@ struct SearchResult {
     std::vector<double> totalValue;
 };
 
+struct StateKey {
+    std::array<std::array<int, tetris::engine_cfg::fieldWidth>, tetris::engine_cfg::fieldHeight> board{};
+    bool hasActive = false;
+    int activeId = -1;
+    int rotation = 0;
+    int originX = 0;
+    int originY = 0;
+    bool canHold = false;
+    bool hasHold = false;
+    int holdPiece = -1;
+    std::array<int, tetris::engine_cfg::queuePreviewCount> nextQueue{};
+    int nextQueueCount = 0;
+
+    bool operator==(const StateKey& other) const {
+        return board == other.board &&
+               hasActive == other.hasActive &&
+               activeId == other.activeId &&
+               rotation == other.rotation &&
+               originX == other.originX &&
+               originY == other.originY &&
+               canHold == other.canHold &&
+               hasHold == other.hasHold &&
+               holdPiece == other.holdPiece &&
+               nextQueue == other.nextQueue &&
+               nextQueueCount == other.nextQueueCount;
+    }
+};
+
+struct StateKeyHash {
+    std::size_t operator()(const StateKey& key) const {
+        std::size_t h = 0;
+        auto combine = [&](std::size_t value) {
+            h ^= value + 0x9e3779b9 + (h << 6) + (h >> 2);
+        };
+
+        for (const auto& row : key.board) {
+            for (int cell : row) {
+                combine(std::hash<int>{}(cell));
+            }
+        }
+
+        combine(std::hash<int>{}(static_cast<int>(key.hasActive)));
+        combine(std::hash<int>{}(key.activeId));
+        combine(std::hash<int>{}(key.rotation));
+        combine(std::hash<int>{}(key.originX));
+        combine(std::hash<int>{}(key.originY));
+        combine(std::hash<int>{}(static_cast<int>(key.canHold)));
+        combine(std::hash<int>{}(static_cast<int>(key.hasHold)));
+        combine(std::hash<int>{}(key.holdPiece));
+        combine(std::hash<int>{}(key.nextQueueCount));
+        for (int val : key.nextQueue) {
+            combine(std::hash<int>{}(val));
+        }
+
+        return h;
+    }
+};
+
+using TranspositionTable = std::unordered_map<StateKey, std::pair<int, double>, StateKeyHash>;
+
 bool actionsEqual(const Action& a, const Action& b) {
     return a.rotation == b.rotation && a.targetX == b.targetX && a.useHold == b.useHold;
 }
@@ -42,11 +105,47 @@ int findRootActionIndex(const std::vector<Action>& actions, const Action& target
     return -1;
 }
 
+StateKey makeKey(const TetrisEnv& env) {
+    StateKey key{};
+
+    const auto& grid = env.getBoard().data();
+    for (int y = 0; y < tetris::engine_cfg::fieldHeight; ++y) {
+        for (int x = 0; x < tetris::engine_cfg::fieldWidth; ++x) {
+            key.board[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] =
+                grid[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)];
+        }
+    }
+
+    const auto& game = env.game();
+    key.canHold = game.canHold();
+    key.hasHold = game.hasHoldPiece();
+    key.holdPiece = key.hasHold ? game.holdPiece() : -1;
+
+    key.hasActive = game.hasActivePiece();
+    if (key.hasActive) {
+        const auto& active = game.activePiece();
+        key.activeId = active.id;
+        key.rotation = active.rotation;
+        key.originX = active.origin.x;
+        key.originY = active.origin.y;
+    }
+
+    key.nextQueue.fill(-1);
+    const auto preview = env.getNextQueue();
+    key.nextQueueCount = static_cast<int>(std::min<std::size_t>(preview.size(), key.nextQueue.size()));
+    for (int i = 0; i < key.nextQueueCount; ++i) {
+        key.nextQueue[static_cast<std::size_t>(i)] = preview[static_cast<std::size_t>(i)];
+    }
+
+    return key;
+}
+
 SearchResult runSearch(const TetrisEnv& env,
                        const std::vector<Action>& rootActions,
                        const MctsParams& params,
                        int iterations,
-                       std::mt19937& rng) {
+                       std::mt19937& rng,
+                       TranspositionTable& table) {
     SearchResult result{};
     result.visits.assign(rootActions.size(), 0);
     result.totalValue.assign(rootActions.size(), 0.0);
@@ -58,8 +157,12 @@ SearchResult runSearch(const TetrisEnv& env,
     auto stepValue = [](const StepResult& r) { return static_cast<double>(r.scoreDelta); };
 
     std::vector<Node> nodes;
+    std::vector<StateKey> nodeKeys;
     nodes.reserve(static_cast<std::size_t>(iterations) + 1);
+    nodeKeys.reserve(static_cast<std::size_t>(iterations) + 1);
+
     nodes.emplace_back();
+    nodeKeys.push_back(makeKey(env));
 
     Node& root = nodes.front();
     root.parent = -1;
@@ -154,11 +257,20 @@ SearchResult runSearch(const TetrisEnv& env,
 
             const int childIndex = static_cast<int>(nodes.size());
             nodes.push_back(std::move(child));
+            nodeKeys.push_back(makeKey(sim));
+
+            // Puxa estatisticas ja vistas para inicializar o filho.
+            const auto it = table.find(nodeKeys.back());
+            if (it != table.end()) {
+                nodes.back().visits = it->second.first;
+                nodes.back().totalValue = it->second.second;
+            }
+
             nodes[nodeIndex].children.push_back(childIndex);
             nodeIndex = childIndex;
         }
 
-        // Rollout
+        // Rollout (greedy, com fallback aleatorio se necessario).
         const Node& rolloutNode = nodes[nodeIndex];
         if (!rolloutNode.terminal && depth < params.maxDepth) {
             while (!sim.isGameOver() && depth < params.maxDepth) {
@@ -167,8 +279,6 @@ SearchResult runSearch(const TetrisEnv& env,
                     break;
                 }
 
-                // Recompensas internas usam scoreDelta; rollouts são guiadas pelo GreedyAgent
-                // para trajetórias mais informativas, com fallback aleatório defensivo caso a ação seja inválida.
                 Action a = rolloutPolicy.chooseAction(sim);
 
                 bool valid = false;
@@ -193,12 +303,17 @@ SearchResult runSearch(const TetrisEnv& env,
             }
         }
 
-        // Backpropagation
+        // Backpropagation (tambem atualiza tabela de transposicao).
         int current = nodeIndex;
         while (current != -1) {
             Node& n = nodes[current];
             n.visits += 1;
             n.totalValue += accumulatedReward;
+
+            auto& entry = table[nodeKeys[static_cast<std::size_t>(current)]];
+            entry.first += 1;
+            entry.second += accumulatedReward;
+
             current = n.parent;
         }
     }
@@ -217,7 +332,7 @@ SearchResult runSearch(const TetrisEnv& env,
 
 } // namespace
 
-MctsRolloutAgent::MctsRolloutAgent(const MctsParams& params) : params_(params) {
+MctsTranspositionAgent::MctsTranspositionAgent(const MctsParams& params) : params_(params) {
     if (params_.seed.has_value()) {
         rng_.seed(*params_.seed);
     } else {
@@ -225,7 +340,7 @@ MctsRolloutAgent::MctsRolloutAgent(const MctsParams& params) : params_(params) {
     }
 }
 
-Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
+Action MctsTranspositionAgent::chooseAction(const TetrisEnv& env) {
     if (params_.iterations <= 0 || params_.maxDepth <= 0 || params_.exploration <= 0.0) {
         return Action{};
     }
@@ -248,7 +363,8 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
     std::vector<SearchResult> partial(static_cast<std::size_t>(workerCount));
 
     if (workerCount == 1) {
-        partial[0] = runSearch(env, rootActions, params_, totalIterations, rng_);
+        TranspositionTable table;
+        partial[0] = runSearch(env, rootActions, params_, totalIterations, rng_, table);
     } else {
         std::vector<std::thread> workers;
         workers.reserve(static_cast<std::size_t>(workerCount));
@@ -262,8 +378,9 @@ Action MctsRolloutAgent::chooseAction(const TetrisEnv& env) {
             const int iterationsForThread = baseIterations + (i < remainder ? 1 : 0);
             workers.emplace_back([&, i, iterationsForThread]() {
                 std::mt19937 localRng(seeds[static_cast<std::size_t>(i)]);
+                TranspositionTable localTable;
                 partial[static_cast<std::size_t>(i)] =
-                    runSearch(env, rootActions, params_, iterationsForThread, localRng);
+                    runSearch(env, rootActions, params_, iterationsForThread, localRng, localTable);
             });
         }
 

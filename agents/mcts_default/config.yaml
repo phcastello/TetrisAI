@@ -1,0 +1,8 @@
+# Configuracao para o MCTS com rollouts aleatorios (baseline default).
+seed: 1337
+iterations: 200
+rollout_depth: 10
+uct_c: 1.4142
+# Opcional: defina >0 para encerrar partidas longas automaticamente.
+score_limit: 0
+time_limit_seconds: 10

@@ -1,6 +1,6 @@
 # TetrisAI
 
-Ambiente de Tetris em C++20 voltado para experimentos de IA (Random, Greedy e MCTS Rollout). A biblioteca `tetris_env` expõe uma API simples para agentes e o projeto já inclui binários para rodar partidas de teste e execuções em batch sem GUI.
+Ambiente de Tetris em C++20 voltado para experimentos de IA (Random, Greedy e variantes de MCTS com rollouts greedy/aleatórios e tabela de transposição). A biblioteca `tetris_env` expõe uma API simples para agentes e o projeto já inclui binários para rodar partidas de teste e execuções em batch sem GUI.
 
 ## Estrutura
 - `include/` e `src/tetris_env/`: API e implementação do ambiente e agentes básicos.
@@ -50,18 +50,26 @@ cmake --build build --config Release
 threads: 4                  # 0 ou <=0 usa std::thread::hardware_concurrency()
 agents:
   - name: greedy_baseline
-    type: greedy            # random | greedy | mcts_rollout
+    type: greedy            # random | greedy | mcts_greedy | mcts_default | mcts_transposition
     episodes: 20
   - name: random_baseline
     type: random
     episodes: 20
-  - name: mcts_default
-    type: mcts_rollout
+  - name: mcts_greedy
+    type: mcts_greedy  # alias mcts_rollout
     episodes: 20
-    mcts_config: agents/mcts_rollout/config.yaml  # opcional; usa busca padrão se omitido
+    mcts_config: agents/mcts_greedy/config.yaml  # opcional; usa busca padrão se omitido
+  - name: mcts_default_rollout
+    type: mcts_default
+    episodes: 20
+    mcts_config: agents/mcts_default/config.yaml
+  - name: mcts_tt
+    type: mcts_transposition
+    episodes: 20
+    mcts_config: agents/mcts_transposition/config.yaml
 ```
 - Cada agente roda com até `threads` jogos simultâneos (limitado pelo número de episódios).
-- MCTS lê parâmetros de YAML simples (seed, iterations, rollout_depth, uct_c, limites opcionais de score/tempo); o default fica em `agents/mcts_rollout/config.yaml`.
+- MCTS lê parâmetros de YAML simples (seed, iterations, rollout_depth, uct_c, limites opcionais de score/tempo); os defaults ficam em `agents/mcts_greedy/config.yaml`, `agents/mcts_default/config.yaml` e `agents/mcts_transposition/config.yaml`.
 
 ### Saída e logs
 - Cada agente grava `agents/<agent_dir>/run_<runId>.csv` (ex.: `agents/heuristic_greedy/run_YYYYMMDD_HHMMSSmmm_greedy.csv`).

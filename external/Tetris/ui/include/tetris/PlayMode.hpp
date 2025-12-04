@@ -6,7 +6,9 @@ enum class PlayMode {
     Human = 0,
     RandomAI = 1,
     GreedyAI = 2,
-    MctsAI = 3,
+    MctsGreedyAI = 3,
+    MctsDefaultAI = 4,
+    MctsTranspositionAI = 5,
 };
 
 } // namespace tetris
