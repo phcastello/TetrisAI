@@ -9,26 +9,49 @@ threads: 0
 # Lista de agentes a serem executados em batch.
 agents:
   - name: random_baseline
-    type: random          # suporta: random, greedy, mcts_greedy (ou mcts_rollout), mcts_default, mcts_transposition
-    episodes: 10         # número de episódios para este agente
+    type: random
+    episodes: 10
 
   - name: greedy_baseline
     type: greedy
     episodes: 10
 
-  - name: mcts_greedy
-    type: mcts_greedy
-    episodes: 10
-    # Caminho opcional para o YAML de configuração do MCTS.
-    # Se omitido, usar a mesma busca que a GUI usa (agents/<dir>/config.yaml, config/<dir>.yaml, etc).
-    mcts_config: agents/mcts_greedy/config.yaml
+  - name: mcts_score_random_noTT
+    type: mcts_rollout
+    episodes: 5
+    mcts_config: agents/mcts_rollout/score_random_noTT.yaml
 
-  - name: mcts_default_rollout
-    type: mcts_default
-    episodes: 10
-    mcts_config: agents/mcts_default/config.yaml
+  - name: mcts_score_random_tt
+    type: mcts_rollout
+    episodes: 5
+    mcts_config: agents/mcts_rollout/score_random_tt.yaml
 
-  - name: mcts_tt
-    type: mcts_transposition
-    episodes: 10
-    mcts_config: agents/mcts_transposition/config.yaml
+  - name: mcts_greedy_random_noTT
+    type: mcts_rollout
+    episodes: 5
+    mcts_config: agents/mcts_rollout/greedy_random_noTT.yaml
+
+  - name: mcts_greedy_random_tt
+    type: mcts_rollout
+    episodes: 5
+    mcts_config: agents/mcts_rollout/greedy_random_tt.yaml
+
+  - name: mcts_score_greedy_noTT
+    type: mcts_rollout
+    episodes: 5
+    mcts_config: agents/mcts_rollout/score_greedy_noTT.yaml
+
+  - name: mcts_score_greedy_tt
+    type: mcts_rollout
+    episodes: 5
+    mcts_config: agents/mcts_rollout/score_greedy_tt.yaml
+
+  - name: mcts_greedy_greedy_noTT
+    type: mcts_rollout
+    episodes: 5
+    mcts_config: agents/mcts_rollout/greedy_greedy_noTT.yaml
+
+  - name: mcts_greedy_greedy_tt
+    type: mcts_rollout
+    episodes: 5
+    mcts_config: agents/mcts_rollout/greedy_greedy_tt.yaml

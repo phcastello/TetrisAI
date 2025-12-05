@@ -1,18 +1,15 @@
 #pragma once
 
-#include <random>
-
-#include "tetris_env/Agent.hpp"
-#include "tetris_env/TetrisEnv.hpp"
-#include "tetris_env/mcts/MctsParams.hpp"
+#include "tetris_env/MctsRolloutAgent.hpp"
 
 class MctsDefaultRolloutAgent : public Agent {
 public:
     explicit MctsDefaultRolloutAgent(const MctsParams& params = MctsParams());
 
     Action chooseAction(const TetrisEnv& env) override;
+    void onEpisodeStart() override { impl_.onEpisodeStart(); }
+    void onEpisodeEnd() override { impl_.onEpisodeEnd(); }
 
 private:
-    MctsParams params_;
-    std::mt19937 rng_;
+    MctsRolloutAgent impl_;
 };

@@ -12,7 +12,6 @@ namespace tetris {
 
 std::string makeRunIdTimestamp() {
     const auto now = std::chrono::system_clock::now();
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
     std::time_t t = std::chrono::system_clock::to_time_t(now);
     std::tm tm{};
 #if defined(_WIN32)
@@ -21,7 +20,7 @@ std::string makeRunIdTimestamp() {
     localtime_r(&t, &tm);
 #endif
     std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y%m%d_%H%M%S") << std::setw(3) << std::setfill('0') << ms.count();
+    oss << std::put_time(&tm, "%Y%m%d_%H_%M_%S");
     return oss.str();
 }
 

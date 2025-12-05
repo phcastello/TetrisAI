@@ -1,6 +1,6 @@
-# MCTS Greedy Agent
+# MCTS Greedy Agent (alias)
 
-Agente de Monte Carlo Tree Search com rollouts guiados pelo `GreedyAgent`. Usa UCT para seleção, recompensa interna baseada em `scoreDelta` e fallback aleatório defensivo quando necessário.
+Alias herdado para o MCTS unificado. Equivale a `MctsRolloutAgent` com `rollout_policy: greedy`, `reward_mode: score` e sem tabela de transposição.
 
 ## Como usar
 - O batch runner reconhece `type: mcts_greedy` (ou o alias `mcts_rollout`). Exemplo:
@@ -25,6 +25,8 @@ agents:
 - `seed` (opcional): fixa o RNG do MCTS.
 - `score_limit` (opcional): encerra o episodio quando o score atingir esse valor.
 - `time_limit_seconds` (opcional): encerra o episodio quando esse tempo for atingido.
+- Novos campos opcionais do agente unificado: `rollout_policy` (greedy/random), `reward_mode` (score/greedy),
+  `use_transposition_table` (on/off) e `tt_max_entries` (0 usa limite default).
 
 Exemplo em `agents/mcts_greedy/config.yaml`:
 

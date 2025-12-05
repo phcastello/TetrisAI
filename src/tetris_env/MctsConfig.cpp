@@ -1,5 +1,6 @@
 #include "tetris_env/MctsConfig.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <fstream>
@@ -44,6 +45,13 @@ bool tryParseDouble(const std::string& value, double& out) {
     }
 }
 
+std::string toLower(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return text;
+}
+
 bool tryParseUint32(const std::string& value, std::uint32_t& out) {
     try {
         const unsigned long parsed = std::stoul(value);
@@ -57,25 +65,46 @@ bool tryParseUint32(const std::string& value, std::uint32_t& out) {
     }
 }
 
+bool tryParseBool(const std::string& value, bool& out) {
+    const std::string lower = toLower(value);
+    if (lower == "true" || lower == "yes" || lower == "1" || lower == "on") {
+        out = true;
+        return true;
+    }
+    if (lower == "false" || lower == "no" || lower == "0" || lower == "off") {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
 } // namespace
 
 std::optional<std::filesystem::path> findMctsConfigPath(const std::string& agentDir) {
     namespace fs = std::filesystem;
-    std::vector<fs::path> candidates{
-        fs::path("agents") / agentDir / "config.yaml",
-        fs::path("config") / (agentDir + ".yaml"),
-        fs::path("..") / "agents" / agentDir / "config.yaml",
-        fs::path("..") / "config" / (agentDir + ".yaml"),
-        fs::path("agents") / (agentDir + ".yaml"),
+    std::vector<std::string> dirNames;
+    dirNames.push_back(agentDir);
+    if (agentDir == "mcts_rollout") {
+        dirNames.push_back("mcts_greedy");
+        dirNames.push_back("mcts_default");
+        dirNames.push_back("mcts_transposition");
+    } else if (agentDir == "mcts_greedy" || agentDir == "mcts_default" || agentDir == "mcts_transposition") {
+        dirNames.push_back("mcts_rollout");
+    }
+
+    std::vector<fs::path> candidates;
+    auto pushUnique = [&](const fs::path& candidate) {
+        if (std::find(candidates.begin(), candidates.end(), candidate) == candidates.end()) {
+            candidates.push_back(candidate);
+        }
     };
 
-    if (agentDir == "mcts_greedy") {
-        // Suporte retroativo ao nome antigo.
-        candidates.push_back("agents/mcts_rollout/config.yaml");
-        candidates.push_back("config/mcts_rollout.yaml");
-        candidates.push_back("../agents/mcts_rollout/config.yaml");
-        candidates.push_back("../config/mcts_rollout.yaml");
-        candidates.push_back("agents/mcts_rollout.yaml");
+    for (const auto& dir : dirNames) {
+        pushUnique(fs::path("agents") / dir / "config.yaml");
+        pushUnique(fs::path("config") / (dir + ".yaml"));
+        pushUnique(fs::path("..") / "agents" / dir / "config.yaml");
+        pushUnique(fs::path("..") / "config" / (dir + ".yaml"));
+        pushUnique(fs::path("agents") / (dir + ".yaml"));
     }
 
     for (const auto& candidate : candidates) {
@@ -158,6 +187,30 @@ bool loadMctsParamsFromYaml(const std::filesystem::path& filepath, ::MctsParams&
             if (tryParseDouble(value, parsed) && parsed > 0.0) {
                 params.timeLimitSeconds = parsed;
             }
+        } else if (key == "rollout_policy") {
+            const std::string lower = toLower(value);
+            if (lower == "greedy") {
+                params.rolloutPolicy = MctsRolloutPolicy::Greedy;
+            } else if (lower == "random") {
+                params.rolloutPolicy = MctsRolloutPolicy::Random;
+            }
+        } else if (key == "reward_mode") {
+            const std::string lower = toLower(value);
+            if (lower == "score") {
+                params.valueFunction = MctsValueFunction::ScoreDelta;
+            } else if (lower == "greedy") {
+                params.valueFunction = MctsValueFunction::GreedyHeuristic;
+            }
+        } else if (key == "use_transposition_table" || key == "use_tt") {
+            bool parsed = false;
+            if (tryParseBool(value, parsed)) {
+                params.useTranspositionTable = parsed;
+            }
+        } else if (key == "tt_max_entries") {
+            int parsed = 0;
+            if (tryParseInt(value, parsed) && parsed >= 0) {
+                params.ttMaxEntries = static_cast<std::size_t>(parsed);
+            }
         }
     }
 
@@ -194,6 +247,13 @@ std::string buildMctsConfigString(const ::MctsParams& params) {
     } else {
         oss << "none";
     }
+    const char* rolloutStr = params.rolloutPolicy == MctsRolloutPolicy::Greedy ? "greedy" : "random";
+    const char* rewardStr =
+        params.valueFunction == MctsValueFunction::ScoreDelta ? "score" : "greedy";
+    oss << " rollout=" << rolloutStr
+        << " reward=" << rewardStr
+        << " tt=" << (params.useTranspositionTable ? "on" : "off")
+        << " tt_max_entries=" << params.ttMaxEntries;
     return oss.str();
 }
 

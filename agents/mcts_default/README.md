@@ -1,6 +1,6 @@
 # MCTS Default Agent (rollouts aleatórios)
 
-Versão simples do MCTS que usa rollouts aleatórios como política de simulação. Seleção segue UCT, recompensas internas usam `scoreDelta` e não há otimizações extras.
+Alias para o agente MCTS unificado com `rollout_policy: random`, `reward_mode: score` e sem tabela de transposição. Seleção segue UCT; recompensas internas usam `scoreDelta`.
 
 ## Como usar
 - No batch runner, use `type: mcts_default`.
@@ -21,6 +21,8 @@ agents:
 Mesmos campos do MCTS greedy:
 - `iterations`, `rollout_depth`/`maxDepth`, `uct_c`/`exploration` (obrigatórios)
 - `threads`, `seed`, `score_limit`, `time_limit_seconds` (opcionais)
+- Campos extras aceitos pelo agente unificado: `rollout_policy`, `reward_mode`,
+  `use_transposition_table`, `tt_max_entries`.
 
 Exemplo em `agents/mcts_default/config.yaml`:
 

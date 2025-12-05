@@ -5,6 +5,11 @@ seed: 1337
 iterations: 200      # ajuste inicial; pode ser calibrado depois
 rollout_depth: 10     # profundidade máxima dos rollouts
 uct_c: 1.4142
+# Politicas e recompensas configuraveis no MctsRolloutAgent unificado.
+rollout_policy: greedy          # greedy | random
+reward_mode: score              # score | greedy
+use_transposition_table: false  # true | false
+tt_max_entries: 0               # 0 = usa limite default interno
 # Opcional: defina >0 para encerrar partidas longas automaticamente.
 score_limit: 0          # limite de score (0 desativa)
-time_limit_seconds: 10   # limite de tempo de episodio em segundos (0 desativa)
+time_limit_seconds: 500   # limite de tempo de episodio em segundos (0 desativa)

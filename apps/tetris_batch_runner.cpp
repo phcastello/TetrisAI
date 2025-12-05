@@ -18,9 +18,6 @@
 #include "tetris_env/RunLogging.hpp"
 #include "tetris_env/TetrisEnv.hpp"
 #include "tetris_env/MctsRolloutAgent.hpp"
-#include "tetris_env/mcts/DefaultRolloutAgent.hpp"
-#include "tetris_env/mcts/GreedyRolloutAgent.hpp"
-#include "tetris_env/mcts/TranspositionRolloutAgent.hpp"
 
 struct AgentBatchConfig {
     std::string name;
@@ -61,6 +58,24 @@ bool tryParseInt(const std::string& value, int& out) {
     }
 }
 
+std::string makeSafeSuffix(const std::string& name) {
+    std::string safe;
+    safe.reserve(name.size());
+    for (unsigned char c : name) {
+        if (std::isalnum(c) != 0) {
+            safe.push_back(static_cast<char>(c));
+        } else {
+            safe.push_back('_');
+        }
+    }
+    if (safe.empty()) {
+        safe = "agent";
+    }
+    return safe;
+}
+
+bool isMctsType(const std::string& type);
+
 void printUsage() {
     std::cout << "Uso: tetris_batch_runner [caminho_config_yaml]\n\n"
               << "- Se nenhum caminho for informado, usa \"config/batch_runs.yaml\".\n"
@@ -73,19 +88,24 @@ void printUsage() {
               << "      - name: greedy_baseline\n"
               << "        type: greedy\n"
               << "        episodes: 100\n"
-              << "      - name: mcts_greedy\n"
-              << "        type: mcts_greedy   # ou mcts_rollout (alias)\n"
-              << "        episodes: 100\n"
-              << "        mcts_config: agents/mcts_greedy/config.yaml\n"
-              << "      - name: mcts_default_rollout\n"
-              << "        type: mcts_default  # rollouts aleatorias\n"
-              << "        episodes: 100\n"
-              << "      - name: mcts_tt\n"
-              << "        type: mcts_transposition  # usa tabela de transposicao\n"
-              << "        episodes: 100\n"
-              << "        mcts_config: agents/mcts_transposition/config.yaml\n\n"
+              << "      - name: mcts_score_random_noTT\n"
+              << "        type: mcts_rollout\n"
+              << "        episodes: 50\n"
+              << "        mcts_config: agents/mcts_rollout/score_random_noTT.yaml\n"
+              << "      - name: mcts_score_random_tt\n"
+              << "        type: mcts_rollout\n"
+              << "        episodes: 50\n"
+              << "        mcts_config: agents/mcts_rollout/score_random_tt.yaml\n"
+              << "      - name: mcts_greedy_random_noTT\n"
+              << "        type: mcts_rollout\n"
+              << "        episodes: 50\n"
+              << "        mcts_config: agents/mcts_rollout/greedy_random_noTT.yaml\n"
+              << "      - name: mcts_greedy_random_tt\n"
+              << "        type: mcts_rollout\n"
+              << "        episodes: 50\n"
+              << "        mcts_config: agents/mcts_rollout/greedy_random_tt.yaml\n\n"
               << "- Os resultados de cada agente sao gravados em:\n"
-              << "    agents/<agent_dir>/run_<runId>.csv\n"
+              << "    agents/<agent_dir>/run_<runId>_<agent_name_sanitizado>.csv\n"
               << "- Agentes MCTS rodam episodios de forma sequencial e usam o numero de\n"
               << "  threads configurado para paralelizar o proprio jogo.\n";
 }
@@ -254,14 +274,11 @@ std::optional<BatchConfig> loadBatchConfig(const std::string& path) {
 }
 
 std::string agentDirForType(const std::string& type) {
-    if (type == "mcts_greedy" || type == "mcts_rollout") {
-        return "mcts_greedy";
-    }
-    if (type == "mcts_default") {
-        return "mcts_default";
-    }
-    if (type == "mcts_transposition") {
-        return "mcts_transposition";
+    if (type == "mcts_rollout" ||
+        type == "mcts_greedy" ||
+        type == "mcts_default" ||
+        type == "mcts_transposition") {
+        return "mcts_rollout";
     }
     if (type == "greedy") {
         return "heuristic_greedy";
@@ -269,23 +286,17 @@ std::string agentDirForType(const std::string& type) {
     return "random_agent";
 }
 
-std::string agentFilenameSuffixForType(const std::string& type) {
-    if (type == "mcts_greedy" || type == "mcts_rollout") {
-        return "_MCTS_greedy";
+std::string agentFilenameSuffixFor(const AgentBatchConfig& cfg) {
+    if (isMctsType(cfg.type)) {
+        return "_" + makeSafeSuffix(cfg.name);
     }
-    if (type == "mcts_default") {
-        return "_MCTS_default";
-    }
-    if (type == "mcts_transposition") {
-        return "_MCTS_tt";
-    }
-    if (type == "greedy") {
+    if (cfg.type == "greedy") {
         return "_greedy";
     }
-    if (type == "random") {
+    if (cfg.type == "random") {
         return "_random";
     }
-    return "";
+    return "_" + makeSafeSuffix(cfg.name);
 }
 
 bool isMctsType(const std::string& type) {
@@ -329,10 +340,10 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
                          unsigned int maxConcurrentThreads,
                          const std::filesystem::path& configBaseDir) {
     const std::string runId = tetris::makeRunIdTimestamp();
-    const std::string normalizedType = agentCfg.type == "mcts_rollout" ? "mcts_greedy" : agentCfg.type;
-    const std::string agentDir = agentDirForType(agentCfg.type);
-    const std::string agentFilenameSuffix = agentFilenameSuffixForType(agentCfg.type);
-    const bool isMctsAgent = isMctsType(normalizedType);
+    const std::string canonicalType = agentCfg.type == "mcts_rollout" ? "mcts_rollout" : agentCfg.type;
+    const std::string agentDir = agentDirForType(canonicalType);
+    const std::string agentFilenameSuffix = agentFilenameSuffixFor(agentCfg);
+    const bool isMctsAgent = isMctsType(canonicalType);
     const unsigned int threadsForEpisodes = isMctsAgent
         ? 1u
         : std::max(1u, std::min(maxConcurrentThreads, static_cast<unsigned int>(agentCfg.episodes)));
@@ -360,11 +371,22 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
             return false;
         }
 
+        if (canonicalType == "mcts_default") {
+            params.rolloutPolicy = MctsRolloutPolicy::Random;
+            params.useTranspositionTable = false;
+        } else if (canonicalType == "mcts_transposition") {
+            params.rolloutPolicy = MctsRolloutPolicy::Greedy;
+            params.useTranspositionTable = true;
+        } else if (canonicalType == "mcts_greedy") {
+            params.rolloutPolicy = MctsRolloutPolicy::Greedy;
+            params.useTranspositionTable = false;
+        }
+
         params.threads = static_cast<int>(mctsThreadBudget);
         mctsParams = params;
         agentConfigString = tetris::buildMctsConfigString(params);
 
-        std::cout << "Config MCTS carregada de " << configPath << " para tipo " << normalizedType << '\n';
+        std::cout << "Config MCTS carregada de " << configPath << " para tipo " << canonicalType << '\n';
     }
 
     std::vector<tetris::EpisodeReport> reports(static_cast<std::size_t>(agentCfg.episodes));
@@ -379,7 +401,7 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
     const std::string modeName = "HeadlessBatch";
     const std::string runIdCopy = runId;
     const std::string agentConfigCopy = agentConfigString;
-    const std::string agentTypeCopy = normalizedType;
+    const std::string agentTypeCopy = canonicalType;
     const bool isMctsAgentCopy = isMctsAgent;
     const int totalEpisodesCopy = agentCfg.episodes;
     const unsigned int mctsThreadsCopy = mctsThreadBudget;
@@ -394,38 +416,18 @@ bool runEpisodesForAgent(const AgentBatchConfig& agentCfg,
             std::unique_ptr<Agent> agent;
             if (agentTypeCopy == "random") {
                 agent = std::make_unique<RandomAgent>();
-            } else if (agentTypeCopy == "mcts_greedy") {
-                if (!paramsOpt.has_value()) {
-                    std::lock_guard<std::mutex> lock(logMutex);
-                    std::cerr << "Erro interno: MCTS params nao carregados.\n";
-                    success.store(false, std::memory_order_relaxed);
-                    return;
-                }
-                MctsParams paramsCopy = *paramsOpt;
-                paramsCopy.threads = static_cast<int>(mctsThreadsCopy);
-                agent = std::make_unique<MctsGreedyRolloutAgent>(paramsCopy);
-            } else if (agentTypeCopy == "mcts_default") {
-                if (!paramsOpt.has_value()) {
-                    std::lock_guard<std::mutex> lock(logMutex);
-                    std::cerr << "Erro interno: MCTS params nao carregados.\n";
-                    success.store(false, std::memory_order_relaxed);
-                    return;
-                }
-                MctsParams paramsCopy = *paramsOpt;
-                paramsCopy.threads = static_cast<int>(mctsThreadsCopy);
-                agent = std::make_unique<MctsDefaultRolloutAgent>(paramsCopy);
-            } else if (agentTypeCopy == "mcts_transposition") {
-                if (!paramsOpt.has_value()) {
-                    std::lock_guard<std::mutex> lock(logMutex);
-                    std::cerr << "Erro interno: MCTS params nao carregados.\n";
-                    success.store(false, std::memory_order_relaxed);
-                    return;
-                }
-                MctsParams paramsCopy = *paramsOpt;
-                paramsCopy.threads = static_cast<int>(mctsThreadsCopy);
-                agent = std::make_unique<MctsTranspositionAgent>(paramsCopy);
             } else if (agentTypeCopy == "greedy") {
                 agent = std::make_unique<GreedyAgent>();
+            } else if (isMctsAgentCopy) {
+                if (!paramsOpt.has_value()) {
+                    std::lock_guard<std::mutex> lock(logMutex);
+                    std::cerr << "Erro interno: MCTS params nao carregados.\n";
+                    success.store(false, std::memory_order_relaxed);
+                    return;
+                }
+                MctsParams paramsCopy = *paramsOpt;
+                paramsCopy.threads = static_cast<int>(mctsThreadsCopy);
+                agent = std::make_unique<MctsRolloutAgent>(paramsCopy);
             } else {
                 std::lock_guard<std::mutex> lock(logMutex);
                 std::cerr << "Tipo de agente desconhecido: " << agentTypeCopy << '\n';

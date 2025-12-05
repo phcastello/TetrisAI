@@ -17,32 +17,39 @@
 
 #include "tetris_env/GreedyAgent.hpp"
 #include "tetris_env/MctsConfig.hpp"
-#include "tetris_env/MctsRolloutAgent.hpp"
-#include "tetris_env/mcts/DefaultRolloutAgent.hpp"
-#include "tetris_env/mcts/TranspositionRolloutAgent.hpp"
 #include "tetris_env/RandomAgent.hpp"
 #include "tetris_env/RunLogging.hpp"
 #include "tetris_env/TetrisEnv.hpp"
+#include "tetris_env/MctsRolloutAgent.hpp"
 
 namespace tetris {
 
 namespace {
 
-std::string filenameSuffixForMode(PlayMode mode) {
-    switch (mode) {
-        case PlayMode::RandomAI:
-            return "_random";
-        case PlayMode::GreedyAI:
-            return "_greedy";
-        case PlayMode::MctsGreedyAI:
-            return "_MCTS_greedy";
-        case PlayMode::MctsDefaultAI:
-            return "_MCTS_default";
-        case PlayMode::MctsTranspositionAI:
-            return "_MCTS_tt";
-        default:
-            return "";
+std::string makeSafeSuffix(const std::string& name) {
+    std::string safe;
+    safe.reserve(name.size());
+    for (unsigned char c : name) {
+        if (std::isalnum(c) != 0) {
+            safe.push_back(static_cast<char>(c));
+        } else {
+            safe.push_back('_');
+        }
     }
+    if (safe.empty()) {
+        safe = "agent";
+    }
+    return safe;
+}
+
+std::string filenameSuffixForMode(PlayMode mode, const std::string& agentName) {
+    if (mode == PlayMode::RandomAI) {
+        return "_random";
+    }
+    if (mode == PlayMode::GreedyAI) {
+        return "_greedy";
+    }
+    return "_" + makeSafeSuffix(agentName);
 }
 
 bool isMctsMode(PlayMode mode) {
@@ -98,21 +105,21 @@ int App::run() {
                     report.agentConfig.clear();
                     break;
                 case PlayMode::MctsGreedyAI:
-                    report.agentName = "MctsGreedyRolloutAgent";
+                    report.agentName = "mcts_greedy";
                     report.modeName = "MctsGreedyAI";
-                    agentDir = "mcts_greedy";
+                    agentDir = "mcts_rollout";
                     report.agentConfig.clear();
                     break;
                 case PlayMode::MctsDefaultAI:
-                    report.agentName = "MctsDefaultRolloutAgent";
+                    report.agentName = "mcts_default";
                     report.modeName = "MctsDefaultAI";
-                    agentDir = "mcts_default";
+                    agentDir = "mcts_rollout";
                     report.agentConfig.clear();
                     break;
                 case PlayMode::MctsTranspositionAI:
-                    report.agentName = "MctsTranspositionAgent";
+                    report.agentName = "mcts_transposition";
                     report.modeName = "MctsTranspositionAI";
-                    agentDir = "mcts_transposition";
+                    agentDir = "mcts_rollout";
                     report.agentConfig.clear();
                     break;
                 default:
@@ -127,7 +134,7 @@ int App::run() {
             music_.stop();
 
             if (episodePlayed && window_.isOpen()) {
-                appendEpisodeReportToRunFile(report, agentDir, filenameSuffixForMode(mode_));
+                appendEpisodeReportToRunFile(report, agentDir, filenameSuffixForMode(mode_, report.agentName));
             }
         }
 
@@ -256,12 +263,7 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
         case PlayMode::MctsDefaultAI:
         case PlayMode::MctsTranspositionAI: {
             ::MctsParams params{};
-            std::string agentDir = "mcts_greedy";
-            if (mode == PlayMode::MctsDefaultAI) {
-                agentDir = "mcts_default";
-            } else if (mode == PlayMode::MctsTranspositionAI) {
-                agentDir = "mcts_transposition";
-            }
+            std::string agentDir = "mcts_rollout";
 
             const auto configPath = findMctsConfigPath(agentDir);
             if (!configPath.has_value()) {
@@ -272,18 +274,24 @@ bool App::runGameLoopAI(PlayMode mode, EpisodeReport& report) {
             if (!loadMctsParamsFromYaml(*configPath, params)) {
                 return false;
             }
+
+            if (mode == PlayMode::MctsDefaultAI) {
+                params.rolloutPolicy = MctsRolloutPolicy::Random;
+                params.useTranspositionTable = false;
+            } else if (mode == PlayMode::MctsTranspositionAI) {
+                params.rolloutPolicy = MctsRolloutPolicy::Greedy;
+                params.useTranspositionTable = true;
+            } else {
+                params.rolloutPolicy = MctsRolloutPolicy::Greedy;
+                params.useTranspositionTable = false;
+            }
+
             std::cerr << "Config MCTS carregada de " << *configPath << '\n';
             report.agentConfig = buildMctsConfigString(params);
             scoreLimit = params.scoreLimit;
             timeLimitSeconds = params.timeLimitSeconds;
 
-            if (mode == PlayMode::MctsDefaultAI) {
-                agent = std::make_unique<::MctsDefaultRolloutAgent>(params);
-            } else if (mode == PlayMode::MctsTranspositionAI) {
-                agent = std::make_unique<::MctsTranspositionAgent>(params);
-            } else {
-                agent = std::make_unique<::MctsRolloutAgent>(params);
-            }
+            agent = std::make_unique<::MctsRolloutAgent>(params);
             break;
         }
         case PlayMode::Human:

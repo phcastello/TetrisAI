@@ -1,0 +1,9 @@
+# Rollout greedy, recompensa baseada em scoreDelta, sem tabela de transposicao.
+seed: 1337
+iterations: 200
+rollout_depth: 10
+uct_c: 1.4142
+rollout_policy: greedy
+reward_mode: score
+use_transposition_table: false
+tt_max_entries: 0

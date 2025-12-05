@@ -10,7 +10,7 @@ namespace tetris {
 
 // Attempts to locate a MCTS configuration file for the given variant in common locations
 // relative to the current working directory.
-std::optional<std::filesystem::path> findMctsConfigPath(const std::string& agentDir = "mcts_greedy");
+std::optional<std::filesystem::path> findMctsConfigPath(const std::string& agentDir = "mcts_rollout");
 
 // Loads MctsParams from the given YAML file (simple key: value format).
 bool loadMctsParamsFromYaml(const std::filesystem::path& filepath, ::MctsParams& params);

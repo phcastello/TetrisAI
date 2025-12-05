@@ -1,0 +1,9 @@
+# Rollout aleatorio, recompensa via heuristica do Greedy, sem tabela de transposicao.
+seed: 1337
+iterations: 200
+rollout_depth: 10
+uct_c: 1.4142
+rollout_policy: random
+reward_mode: greedy
+use_transposition_table: false
+tt_max_entries: 0

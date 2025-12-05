@@ -6,7 +6,7 @@
 
 namespace tetris {
 
-// Builds a run identifier timestamp in the format YYYYMMDD_HHMMSSmmm.
+// Builds a run identifier timestamp in the format YYYYMMDD_HH_MM_SS.
 std::string makeRunIdTimestamp();
 
 // Appends the episode report to agents/<agentDir>/run_<runId><suffix>.csv, creating the file with header if needed.

@@ -1,20 +1,32 @@
-# MCTS Rollout Agent (alias para mcts_greedy)
+# MCTS Rollout Agent (unificado)
 
-Agente de Monte Carlo Tree Search guiado por rollouts com `GreedyAgent`. Usa UCT para seleção, recompensa interna baseada em `scoreDelta` e rollouts greedy com fallback aleatório defensivo. Este diretório foi mantido como alias; as configs equivalentes agora vivem em `agents/mcts_greedy`.
+Agente de Monte Carlo Tree Search configurável via YAML. Todas as variações de MCTS anteriores (rollout greedy/aleatório, recompensa por score ou heurística greedy, com/sem tabela de transposição) agora são parametrizadas neste mesmo agente.
 
 ## Como usar
-- O batch runner reconhece `type: mcts_rollout`. Exemplo:
+- Use `type: mcts_rollout` no batch runner. Exemplo com quatro variações rodando na mesma execução:
 
 ```yaml
 threads: 8            # orçamento total de threads
 agents:
-  - name: mcts_default
+  - name: mcts_score_random_noTT
     type: mcts_rollout
-    episodes: 10
-    mcts_config: agents/mcts_rollout/config.yaml
+    episodes: 20
+    mcts_config: agents/mcts_rollout/score_random_noTT.yaml
+  - name: mcts_score_random_tt
+    type: mcts_rollout
+    episodes: 20
+    mcts_config: agents/mcts_rollout/score_random_tt.yaml
+  - name: mcts_greedy_random_noTT
+    type: mcts_rollout
+    episodes: 20
+    mcts_config: agents/mcts_rollout/greedy_random_noTT.yaml
+  - name: mcts_greedy_random_tt
+    type: mcts_rollout
+    episodes: 20
+    mcts_config: agents/mcts_rollout/greedy_random_tt.yaml
 ```
 
-- Episódios MCTS são executados de forma sequencial; o orçamento de `threads` do runner é repassado para o próprio MCTS acelerar cada jogo.
+- Episódios MCTS são executados de forma sequencial; o orçamento de `threads` do runner é repassado para o próprio MCTS paralelizar cada jogo.
 - Se `mcts_config` não for informado, o runner procura por `agents/mcts_rollout/config.yaml` ou `config/mcts_rollout.yaml`.
 
 ## Configuração (YAML)
@@ -25,20 +37,27 @@ agents:
 - `seed` (opcional): fixa o RNG do MCTS.
 - `score_limit` (opcional): encerra o episodio quando o score atingir esse valor.
 - `time_limit_seconds` (opcional): encerra o episodio quando esse tempo for atingido.
+- `rollout_policy`: `greedy` (default) ou `random`.
+- `reward_mode`: `score` (default, usa scoreDelta) ou `greedy` (heurística do Greedy).
+- `use_transposition_table`: ativa/desativa a TT.
+- `tt_max_entries`: limite de entradas da TT (0 = usa default interno).
 
-Exemplo em `agents/mcts_rollout/config.yaml`:
+Exemplo em `agents/mcts_rollout/config.yaml` (rollout greedy, recompensa score):
 
 ```yaml
 seed: 1337
 iterations: 5000
 rollout_depth: 100
 uct_c: 1.4142
-score_limit: 0          # defina >0 para cortar episodios longos por score
-time_limit_seconds: 0   # defina >0 para limitar a duracao em segundos
-# threads: 8  # opcional; se omitido, usa o valor fornecido pelo batch runner
+rollout_policy: greedy
+reward_mode: score
+use_transposition_table: false
+tt_max_entries: 0
+score_limit: 0
+time_limit_seconds: 0
 ```
 
 ## Funcionamento
-- Seleção e expansão seguem UCT; rollouts usam `GreedyAgent` para trajetórias informativas.
+- Seleção e expansão seguem UCT; a política de rollout e a função de recompensa são escolhidas via YAML.
 - Cada thread recebe um RNG próprio (com seed derivada) e os resultados são agregados antes da decisão.
-- O relatório de saída inclui a string de configuração (iterations, maxDepth, exploration, threads, seed) para reprodutibilidade.
+- O relatório de saída inclui a string de configuração com os campos novos para reprodutibilidade.
