@@ -7,3 +7,4 @@ rollout_policy: random
 reward_mode: greedy
 use_transposition_table: true
 tt_max_entries: 0
+time_limit_seconds: 300

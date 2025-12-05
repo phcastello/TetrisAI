@@ -7,3 +7,4 @@ rollout_policy: greedy
 reward_mode: score
 use_transposition_table: false
 tt_max_entries: 0
+time_limit_seconds: 300
